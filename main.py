@@ -30,6 +30,7 @@ import pygame
 
 from config import Config, Direction
 from src.stimulus.arrow_manager import ArrowManager, SelectionState, SelectionResult
+from src.ui.settings_panel import SettingsPanel, SettingsValues
 
 
 class Application:
@@ -51,8 +52,8 @@ class Application:
         
         # Components
         self.arrow_manager: ArrowManager = None
+        self.settings_panel: SettingsPanel = None
         # self.game_manager = None  # TODO
-        # self.settings_panel = None  # TODO
         
         # State
         self.show_debug = config.debug
@@ -88,6 +89,9 @@ class Application:
         # Initialize arrow manager
         self._init_arrow_manager()
         
+        # Initialize settings panel
+        self._init_settings_panel()
+        
         # Print startup info
         self._print_startup_info()
         
@@ -103,6 +107,23 @@ class Application:
         self.arrow_manager.set_callbacks(
             on_selection_complete=self._on_selection_complete,
             on_state_change=self._on_state_change,
+        )
+        
+    def _init_settings_panel(self):
+        """Initialize the settings panel"""
+        self.settings_panel = SettingsPanel(
+            self.config.display.width,
+            self.config.display.height
+        )
+        
+        # Set current values from config
+        values = SettingsValues.from_config(self.config)
+        self.settings_panel.set_values(values)
+        
+        # Set callbacks
+        self.settings_panel.set_callbacks(
+            on_apply=self._on_settings_apply,
+            on_cancel=self._on_settings_cancel,
         )
         
     def _print_startup_info(self):
@@ -125,6 +146,7 @@ class Application:
         print()
         print("Controls:")
         print("  SPACE  - Start/Stop BCI selection")
+        print("  S      - Open settings panel")
         print("  1-4    - Simulate selection (testing)")
         print("  D      - Toggle debug info")
         print("  ESC    - Quit")
@@ -156,8 +178,14 @@ class Application:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.running = False
+                continue
                 
-            elif event.type == pygame.KEYDOWN:
+            # Let settings panel handle events first (if visible)
+            if self.settings_panel and self.settings_panel.is_visible:
+                if self.settings_panel.handle_event(event):
+                    continue  # Event consumed by panel
+                    
+            if event.type == pygame.KEYDOWN:
                 self._handle_keydown(event.key)
                 
     def _handle_keydown(self, key: int):
@@ -173,6 +201,10 @@ class Application:
         # Toggle debug
         elif key == pygame.K_d:
             self.show_debug = not self.show_debug
+            
+        # Toggle settings panel
+        elif key == pygame.K_s:
+            self._toggle_settings()
             
         # Simulate selections (for testing)
         elif key == pygame.K_1:
@@ -216,6 +248,42 @@ class Application:
         print(f"Manual move: {direction.value}")
         # TODO: Move player in game
         
+    def _toggle_settings(self):
+        """Toggle the settings panel"""
+        if self.settings_panel.is_visible:
+            self.settings_panel.hide()
+        else:
+            # Don't open settings during active selection
+            if self.arrow_manager.is_active:
+                print("Cannot open settings during active selection")
+                return
+                
+            # Update panel with current values
+            values = SettingsValues.from_config(self.config)
+            self.settings_panel.set_values(values)
+            self.settings_panel.show()
+            print("Settings panel opened")
+            
+    def _on_settings_apply(self, values: SettingsValues):
+        """Called when settings are applied"""
+        print(f"Settings applied:")
+        print(f"  Flash: {values.flash_duration_ms}ms")
+        print(f"  ISI: {values.isi_ms}ms")
+        print(f"  Sequences: {values.num_sequences}")
+        print(f"  Color: {values.color_scheme.name}")
+        print(f"  SOA: {values.soa_ms}ms ({values.flash_rate_hz:.1f}Hz)")
+        
+        # Apply to config
+        values.apply_to_config(self.config)
+        
+        # Reinitialize arrow manager with new settings
+        self.arrow_manager.shutdown()
+        self._init_arrow_manager()
+        
+    def _on_settings_cancel(self):
+        """Called when settings are cancelled"""
+        print("Settings cancelled")
+        
     def _on_selection_complete(self, result: SelectionResult):
         """Called when BCI selection completes"""
         self.last_selection = result
@@ -255,6 +323,10 @@ class Application:
         
         if self.show_debug:
             self._draw_debug()
+            
+        # Draw settings panel (on top of everything)
+        if self.settings_panel:
+            self.settings_panel.draw(self.screen)
             
         # Flip display
         pygame.display.flip()

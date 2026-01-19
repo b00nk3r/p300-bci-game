@@ -97,3 +97,25 @@
 29911.581, 2, trial_end
 # Session ended
 
+# Session started at 2026-01-19 00:51:00
+# timestamp_ms, trigger_code, label
+# Session ended
+
+# Session started at 2026-01-19 00:51:16
+# timestamp_ms, trigger_code, label
+992.396, 1, trial_start
+992.820, 10, flash_up
+1548.585, 12, flash_left
+2108.004, 11, flash_down
+2646.304, 13, flash_right
+3403.841, 11, flash_down
+3950.484, 13, flash_right
+4495.180, 12, flash_left
+5058.059, 10, flash_up
+5799.557, 12, flash_left
+6343.566, 11, flash_down
+6896.883, 10, flash_up
+7452.894, 13, flash_right
+7553.919, 2, trial_end
+# Session ended
+
