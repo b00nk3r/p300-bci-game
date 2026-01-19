@@ -1,0 +1,18 @@
+# P300 BCI Game Dependencies
+# Install with: pip install -r requirements.txt
+
+# Core
+pygame>=2.5.0
+numpy>=1.24.0
+
+# For MATLAB communication (optional)
+scipy>=1.10.0
+
+# For Lab Streaming Layer (optional, for real-time EEG)
+# pylsl>=1.16.0
+
+# Development
+pytest>=7.0.0
+pytest-cov>=4.0.0
+black>=23.0.0
+flake8>=6.0.0
