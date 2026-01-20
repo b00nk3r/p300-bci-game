@@ -333,3 +333,71 @@
 33354.265, 12, flash_left
 # Session ended
 
+# Session started at 2026-01-19 20:32:15
+# timestamp_ms, trigger_code, label
+# Session started at 2026-01-19 20:38:03
+# timestamp_ms, trigger_code, label
+9564.916, 1, trial_start
+9565.127, 10, flash_up
+9802.932, 12, flash_left
+10029.099, 11, flash_down
+10241.736, 13, flash_right
+10683.597, 11, flash_down
+10891.577, 13, flash_right
+11117.559, 10, flash_up
+11341.925, 12, flash_left
+11772.416, 12, flash_left
+12010.312, 13, flash_right
+12220.949, 10, flash_up
+12441.533, 11, flash_down
+12871.677, 10, flash_up
+13099.372, 13, flash_right
+13319.848, 12, flash_left
+13554.165, 11, flash_down
+13970.506, 10, flash_up
+14190.562, 12, flash_left
+14419.288, 13, flash_right
+14665.006, 11, flash_down
+15080.206, 13, flash_right
+15297.851, 11, flash_down
+15536.053, 10, flash_up
+15752.268, 12, flash_left
+16177.142, 10, flash_up
+16414.755, 11, flash_down
+16624.095, 13, flash_right
+16848.874, 12, flash_left
+17283.498, 13, flash_right
+17501.941, 12, flash_left
+17730.702, 10, flash_up
+17944.583, 11, flash_down
+18367.146, 11, flash_down
+18595.617, 12, flash_left
+18820.989, 13, flash_right
+19051.023, 10, flash_up
+19469.650, 11, flash_down
+19700.136, 10, flash_up
+19929.000, 13, flash_right
+20140.138, 12, flash_left
+20254.681, 2, trial_end
+# Session ended
+
+# Session started at 2026-01-19 20:42:33
+# timestamp_ms, trigger_code, label
+# Session ended
+
+# Session started at 2026-01-19 20:43:10
+# timestamp_ms, trigger_code, label
+# Session ended
+
+# Session started at 2026-01-19 20:57:36
+# timestamp_ms, trigger_code, label
+# Session ended
+
+# Session started at 2026-01-19 20:59:07
+# timestamp_ms, trigger_code, label
+# Session ended
+
+# Session started at 2026-01-19 21:05:06
+# timestamp_ms, trigger_code, label
+# Session ended
+

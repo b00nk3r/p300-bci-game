@@ -135,17 +135,32 @@ class Application:
         # Get arrow panel size to calculate appropriate maze size
         panel_rect = self.arrow_manager.get_panel_rect()
         
-        # Calculate cell size to ensure maze is larger than arrow panel
-        # Maze should fill most of the screen
-        cell_size = 24  # Smaller cells = more cells = larger maze
+        # =================================================================
+        # MAZE SIZE CONFIGURATION
+        # =================================================================
+        # Cell size determines how large each maze cell appears on screen.
+        # Larger cells = fewer cells = simpler maze (easier to play)
+        # Smaller cells = more cells = complex maze (harder to play)
+        #
+        # Recommended cell sizes by resolution:
+        #   1024x768   -> 24-28px  (gives ~40x27 cells)
+        #   1920x1080  -> 40-48px  (gives ~45x25 cells)
+        #   2560x1440  -> 52-60px  (gives ~45x26 cells)
+        #   3072x1920  -> 64-72px  (gives ~45x28 cells)
+        #
+        # To adjust: change cell_size below
+        # =================================================================
+        
+        cell_size = 192  # <-- CHANGE THIS TO ADJUST MAZE SIZE
         
         # Calculate maze dimensions to fill screen
-        # Leave some margin for UI
-        margin = 20
-        maze_width_cells = (self.config.display.width - margin * 2) // cell_size
-        maze_height_cells = (self.config.display.height - margin * 2 - 40) // cell_size  # 40px for status bar
+        margin = 20  # Pixels of margin around maze (smaller = more cells)
+        status_bar_height = 0  # UI overlays on top of maze now
         
-        # Ensure odd dimensions
+        maze_width_cells = (self.config.display.width - margin * 2) // cell_size
+        maze_height_cells = (self.config.display.height - margin * 2 - status_bar_height) // cell_size
+        
+        # Ensure odd dimensions (required for maze algorithm)
         if maze_width_cells % 2 == 0:
             maze_width_cells -= 1
         if maze_height_cells % 2 == 0:
@@ -156,7 +171,7 @@ class Application:
             base_maze_height=maze_height_cells,
             max_maze_width=maze_width_cells,  # Don't grow beyond screen
             max_maze_height=maze_height_cells,
-            maze_growth_per_level=0,  # Keep same size, just regen
+            maze_growth_per_level=0,  # Keep same size, just regenerate
             base_collectibles=12,
             collectibles_per_level=3,
             cell_size=cell_size,
@@ -531,14 +546,14 @@ def parse_args():
     parser.add_argument(
         "--width", 
         type=int, 
-        default=1024,
-        help="Window width (default: 1024)"
+        default=3072,
+        help="Window width (default: 3072)"
     )
     parser.add_argument(
         "--height", 
         type=int, 
-        default=768,
-        help="Window height (default: 768)"
+        default=1920,
+        help="Window height (default: 1920)"
     )
     parser.add_argument(
         "--sequences", 

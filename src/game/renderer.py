@@ -128,20 +128,11 @@ class GameRenderer:
         self._offset_x = (screen_width - self._maze_width_px) // 2
         self._offset_y = (screen_height - self._maze_height_px) // 2
         
-        # Store hole rect and convert to grid coordinates
+        # Use maze's forbidden zone for the hole (ensures consistency)
         self._hole_rect = arrow_panel_rect
-        if arrow_panel_rect:
-            # Convert screen coords to grid coords (with some padding)
-            padding = 1  # Extra cell padding around hole
-            grid_x1 = max(0, (arrow_panel_rect.left - self._offset_x) // cell_size - padding)
-            grid_y1 = max(0, (arrow_panel_rect.top - self._offset_y) // cell_size - padding)
-            grid_x2 = min(maze.width, (arrow_panel_rect.right - self._offset_x) // cell_size + padding + 1)
-            grid_y2 = min(maze.height, (arrow_panel_rect.bottom - self._offset_y) // cell_size + padding + 1)
-            
-            self._hole_grid_rect = pygame.Rect(
-                grid_x1, grid_y1,
-                grid_x2 - grid_x1, grid_y2 - grid_y1
-            )
+        if maze._forbidden_rect:
+            fx, fy, fw, fh = maze._forbidden_rect
+            self._hole_grid_rect = pygame.Rect(fx, fy, fw, fh)
         else:
             self._hole_grid_rect = None
         
