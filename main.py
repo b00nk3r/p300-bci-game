@@ -31,6 +31,7 @@ import pygame
 from config import Config, Direction
 from src.stimulus.arrow_manager import ArrowManager, SelectionState, SelectionResult
 from src.ui.settings_panel import SettingsPanel, SettingsValues
+from src.game.game_manager import GameManager, GameManagerConfig, GameState
 
 
 class Application:
@@ -53,7 +54,7 @@ class Application:
         # Components
         self.arrow_manager: ArrowManager = None
         self.settings_panel: SettingsPanel = None
-        # self.game_manager = None  # TODO
+        self.game_manager: GameManager = None
         
         # State
         self.show_debug = config.debug
@@ -92,6 +93,9 @@ class Application:
         # Initialize settings panel
         self._init_settings_panel()
         
+        # Initialize game manager
+        self._init_game_manager()
+        
         # Print startup info
         self._print_startup_info()
         
@@ -126,6 +130,54 @@ class Application:
             on_cancel=self._on_settings_cancel,
         )
         
+    def _init_game_manager(self):
+        """Initialize the maze game"""
+        # Get arrow panel size to calculate appropriate maze size
+        panel_rect = self.arrow_manager.get_panel_rect()
+        
+        # Calculate cell size to ensure maze is larger than arrow panel
+        # Maze should fill most of the screen
+        cell_size = 24  # Smaller cells = more cells = larger maze
+        
+        # Calculate maze dimensions to fill screen
+        # Leave some margin for UI
+        margin = 20
+        maze_width_cells = (self.config.display.width - margin * 2) // cell_size
+        maze_height_cells = (self.config.display.height - margin * 2 - 40) // cell_size  # 40px for status bar
+        
+        # Ensure odd dimensions
+        if maze_width_cells % 2 == 0:
+            maze_width_cells -= 1
+        if maze_height_cells % 2 == 0:
+            maze_height_cells -= 1
+        
+        game_config = GameManagerConfig(
+            base_maze_width=maze_width_cells,
+            base_maze_height=maze_height_cells,
+            max_maze_width=maze_width_cells,  # Don't grow beyond screen
+            max_maze_height=maze_height_cells,
+            maze_growth_per_level=0,  # Keep same size, just regen
+            base_collectibles=12,
+            collectibles_per_level=3,
+            cell_size=cell_size,
+        )
+        
+        self.game_manager = GameManager(game_config)
+        self.game_manager.initialize(
+            self.config.display.width,
+            self.config.display.height,
+            panel_rect
+        )
+        
+        # Set callbacks
+        self.game_manager.set_callbacks(
+            on_level_complete=self._on_level_complete,
+            on_item_collected=self._on_item_collected,
+        )
+        
+        # Start the game
+        self.game_manager.start_game()
+        
     def _print_startup_info(self):
         """Print configuration info to console"""
         print()
@@ -147,8 +199,11 @@ class Application:
         print("Controls:")
         print("  SPACE  - Start/Stop BCI selection")
         print("  S      - Open settings panel")
-        print("  1-4    - Simulate selection (testing)")
         print("  D      - Toggle debug info")
+        print("  R      - Restart current level")
+        print("  N      - Skip to next level")
+        print("  1-4    - Simulate BCI selection (Up/Down/Left/Right)")
+        print("  Arrows - Manual movement (testing)")
         print("  ESC    - Quit")
         print()
         print("=" * 50)
@@ -206,6 +261,18 @@ class Application:
         elif key == pygame.K_s:
             self._toggle_settings()
             
+        # Game controls
+        elif key == pygame.K_r:
+            # Restart level
+            if self.game_manager:
+                self.game_manager.restart_level()
+                print("Level restarted")
+        elif key == pygame.K_n:
+            # Next level (for testing)
+            if self.game_manager:
+                self.game_manager.next_level()
+                print(f"Advanced to level {self.game_manager.stats.level}")
+            
         # Simulate selections (for testing)
         elif key == pygame.K_1:
             self._simulate_selection(Direction.UP)
@@ -244,9 +311,13 @@ class Application:
             print("Start selection first (SPACE)")
             
     def _manual_move(self, direction: Direction):
-        """Handle manual movement (for testing game)"""
-        print(f"Manual move: {direction.value}")
-        # TODO: Move player in game
+        """Handle manual movement (for testing game without BCI)"""
+        if self.game_manager and self.game_manager.can_accept_input:
+            moved = self.game_manager.move_player(direction)
+            if moved:
+                print(f"Manual move: {direction.value}")
+            else:
+                print(f"Manual move: {direction.value} (blocked)")
         
     def _toggle_settings(self):
         """Toggle the settings panel"""
@@ -292,9 +363,23 @@ class Application:
             print(f"Selection: {result.direction.value} "
                   f"({result.duration_ms:.0f}ms, "
                   f"timing OK: {result.timing_stats['acceptable']})")
-            # TODO: Move player in game
+            
+            # Move player in game
+            if self.game_manager and self.game_manager.can_accept_input:
+                moved = self.game_manager.move_player(result.direction)
+                if not moved:
+                    print("  (blocked by wall)")
         else:
             print("Selection: None (timeout or cancelled)")
+            
+    def _on_level_complete(self, level: int, score: int):
+        """Called when a game level is completed"""
+        print(f"Level {level} complete! Score: {score}")
+        
+    def _on_item_collected(self, points: int):
+        """Called when player collects an item"""
+        if self.show_debug:
+            print(f"  Collected item: +{points} points")
             
     def _on_state_change(self, state: SelectionState):
         """Called when selection state changes"""
@@ -303,19 +388,25 @@ class Application:
             
     def _update(self):
         """Update game state"""
+        delta_ms = self.clock.get_time()
+        
         # Update arrow manager
         self.arrow_manager.update()
         
-        # TODO: Update game manager
+        # Update game manager
+        if self.game_manager:
+            self.game_manager.update(delta_ms)
         
     def _draw(self):
         """Render frame"""
         # Clear screen
         self.screen.fill(self.config.display.background_color)
         
-        # TODO: Draw game (maze) - behind arrows
+        # Draw game (maze, collectibles, player) - behind arrows
+        if self.game_manager:
+            self.game_manager.draw(self.screen)
         
-        # Draw arrows
+        # Draw arrows (on top of game)
         self.arrow_manager.draw(self.screen)
         
         # Draw UI overlays
