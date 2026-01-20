@@ -145,40 +145,50 @@ class Maze:
         if self.config.remove_dead_ends > 0:
             self._remove_dead_ends()
             
-    def _carve_passages(self, x: int, y: int):
+    def _carve_passages(self, start_x: int, start_y: int):
         """
-        Recursively carve passages using backtracking.
+        Carve passages using iterative backtracking (avoids recursion limit).
+        
+        Uses an explicit stack instead of recursion to handle large mazes.
         
         Args:
-            x, y: Current cell position (must be odd coordinates)
+            start_x, start_y: Starting cell position (must be odd coordinates)
         """
-        # Don't carve in forbidden zone
-        if self.is_forbidden(x, y):
-            return
-            
-        # Mark current cell as path
-        self._grid[y][x] = CellType.PATH
+        # Use explicit stack instead of recursion
+        stack = [(start_x, start_y)]
         
-        # Get directions in random order
-        directions = [(0, -2), (0, 2), (-2, 0), (2, 0)]  # Up, Down, Left, Right
-        random.shuffle(directions)
-        
-        for dx, dy in directions:
-            # New cell position
-            nx, ny = x + dx, y + dy
+        while stack:
+            x, y = stack[-1]
             
-            # Check if valid and unvisited
-            if (0 < nx < self.width - 1 and 
-                0 < ny < self.height - 1 and
-                self._grid[ny][nx] == CellType.WALL and
-                not self.is_forbidden(nx, ny) and
-                not self.is_forbidden(x + dx // 2, y + dy // 2)):
+            # Mark current cell as path if not already
+            if self._grid[y][x] == CellType.WALL and not self.is_forbidden(x, y):
+                self._grid[y][x] = CellType.PATH
+            
+            # Get unvisited neighbors
+            neighbors = []
+            for dx, dy in [(0, -2), (0, 2), (-2, 0), (2, 0)]:  # Up, Down, Left, Right
+                nx, ny = x + dx, y + dy
                 
-                # Carve passage between current and new cell
+                # Check if valid, unvisited, and not forbidden
+                if (0 < nx < self.width - 1 and 
+                    0 < ny < self.height - 1 and
+                    self._grid[ny][nx] == CellType.WALL and
+                    not self.is_forbidden(nx, ny) and
+                    not self.is_forbidden(x + dx // 2, y + dy // 2)):
+                    neighbors.append((nx, ny, dx, dy))
+            
+            if neighbors:
+                # Choose random neighbor
+                nx, ny, dx, dy = random.choice(neighbors)
+                
+                # Carve passage between current and neighbor
                 self._grid[y + dy // 2][x + dx // 2] = CellType.PATH
                 
-                # Recursively carve from new cell
-                self._carve_passages(nx, ny)
+                # Push neighbor onto stack
+                stack.append((nx, ny))
+            else:
+                # No unvisited neighbors, backtrack
+                stack.pop()
                 
     def _remove_dead_ends(self):
         """Remove some dead ends to create loops (makes maze easier)"""

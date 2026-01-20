@@ -210,6 +210,7 @@ class GameManager:
         self.maze = Maze(maze_config)
         
         # Calculate forbidden zone from arrow panel rect (in grid coordinates)
+        # This ensures the arrow panel area acts as an impassable wall
         if self._arrow_panel_rect:
             cell_size = self.config.cell_size
             
@@ -219,20 +220,53 @@ class GameManager:
             offset_x = (self._screen_width - maze_width_px) // 2
             offset_y = (self._screen_height - maze_height_px) // 2
             
-            # Convert arrow panel rect to grid coordinates with padding
-            padding = 1  # Extra cell padding
-            grid_x = max(0, (self._arrow_panel_rect.left - offset_x) // cell_size - padding)
-            grid_y = max(0, (self._arrow_panel_rect.top - offset_y) // cell_size - padding)
-            grid_w = (self._arrow_panel_rect.width // cell_size) + padding * 2 + 1
-            grid_h = (self._arrow_panel_rect.height // cell_size) + padding * 2 + 1
+            # Convert arrow panel rect to grid coordinates
+            # Use floor for left/top and ceil for right/bottom to ensure full coverage
+            # Add padding to create a buffer zone around the panel
+            padding = 2  # Extra cells of padding around the arrow panel
             
-            # Clamp to maze bounds
-            grid_x = max(0, min(grid_x, width - 1))
-            grid_y = max(0, min(grid_y, height - 1))
-            grid_w = min(grid_w, width - grid_x)
-            grid_h = min(grid_h, height - grid_y)
+            # Calculate grid boundaries that fully contain the arrow panel
+            # Any cell that even partially overlaps with the panel should be forbidden
+            panel_left = self._arrow_panel_rect.left - offset_x
+            panel_top = self._arrow_panel_rect.top - offset_y
+            panel_right = self._arrow_panel_rect.right - offset_x
+            panel_bottom = self._arrow_panel_rect.bottom - offset_y
             
-            self.maze.set_forbidden_zone((grid_x, grid_y, grid_w, grid_h))
+            # Convert to grid coords with proper rounding
+            grid_x1 = max(0, int(panel_left // cell_size) - padding)
+            grid_y1 = max(0, int(panel_top // cell_size) - padding)
+            grid_x2 = min(width, int((panel_right + cell_size - 1) // cell_size) + padding)
+            grid_y2 = min(height, int((panel_bottom + cell_size - 1) // cell_size) + padding)
+            
+            grid_w = grid_x2 - grid_x1
+            grid_h = grid_y2 - grid_y1
+            
+            # Only set forbidden zone if it leaves room for maze around it
+            # With larger cells, we need less corridor width
+            min_corridor_width = 2  # Minimum cells needed for a corridor
+            if (grid_x1 >= min_corridor_width and 
+                width - grid_x2 >= min_corridor_width and
+                grid_y1 >= min_corridor_width and 
+                height - grid_y2 >= min_corridor_width):
+                self.maze.set_forbidden_zone((grid_x1, grid_y1, grid_w, grid_h))
+            else:
+                print(f"Warning: Arrow panel too large for maze, adjusting forbidden zone")
+                print(f"  Maze: {width}x{height}, Calculated zone: ({grid_x1},{grid_y1}) size {grid_w}x{grid_h}")
+                print(f"  Corridors: L={grid_x1}, R={width-grid_x2}, T={grid_y1}, B={height-grid_y2}")
+                
+                # Try with smaller padding
+                padding = 1
+                grid_x1 = max(0, int(panel_left // cell_size) - padding)
+                grid_y1 = max(0, int(panel_top // cell_size) - padding)
+                grid_x2 = min(width, int((panel_right + cell_size - 1) // cell_size) + padding)
+                grid_y2 = min(height, int((panel_bottom + cell_size - 1) // cell_size) + padding)
+                grid_w = grid_x2 - grid_x1
+                grid_h = grid_y2 - grid_y1
+                
+                if (grid_x1 >= 1 and width - grid_x2 >= 1 and
+                    grid_y1 >= 1 and height - grid_y2 >= 1):
+                    self.maze.set_forbidden_zone((grid_x1, grid_y1, grid_w, grid_h))
+                    print(f"  Reduced padding, new zone: ({grid_x1},{grid_y1}) size {grid_w}x{grid_h}")
         
         # Generate maze
         self.maze.generate()
