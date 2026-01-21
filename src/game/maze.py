@@ -92,6 +92,9 @@ class Maze:
         # Forbidden zone (rect in grid coords)
         self._forbidden_rect: Optional[Tuple[int, int, int, int]] = config.forbidden_rect
         
+        # Plus-shaped forbidden zone (alternative to rectangle)
+        self._forbidden_plus: Optional[dict] = None
+        
         # Special positions
         self._start_pos: Tuple[int, int] = (1, 1)
         self._goal_pos: Tuple[int, int] = (config.width - 2, config.height - 2)
@@ -107,9 +110,37 @@ class Maze:
             rect: (x, y, width, height) in grid coordinates
         """
         self._forbidden_rect = rect
+        self._forbidden_plus = None  # Clear plus shape if rectangle is set
+    
+    def set_forbidden_plus(self, vertical: Tuple[int, int, int, int], horizontal: Tuple[int, int, int, int]):
+        """
+        Set plus-shaped forbidden zone.
+        
+        Args:
+            vertical: (x, y, width, height) of vertical strip in grid coordinates
+            horizontal: (x, y, width, height) of horizontal strip in grid coordinates
+        """
+        self._forbidden_plus = {
+            'vertical': vertical,
+            'horizontal': horizontal,
+        }
+        self._forbidden_rect = None  # Clear rectangle if plus is set
         
     def is_forbidden(self, x: int, y: int) -> bool:
-        """Check if cell is in forbidden zone"""
+        """Check if cell is in forbidden zone (rectangle or plus shape)"""
+        # Check plus-shaped forbidden zone
+        if self._forbidden_plus is not None:
+            # Check vertical strip
+            vx, vy, vw, vh = self._forbidden_plus['vertical']
+            if vx <= x < vx + vw and vy <= y < vy + vh:
+                return True
+            # Check horizontal strip
+            hx, hy, hw, hh = self._forbidden_plus['horizontal']
+            if hx <= x < hx + hw and hy <= y < hy + hh:
+                return True
+            return False
+        
+        # Check rectangular forbidden zone
         if self._forbidden_rect is None:
             return False
         fx, fy, fw, fh = self._forbidden_rect
@@ -162,51 +193,57 @@ class Maze:
         Generate simple corridors around the forbidden zone.
         
         Creates a continuous path system that:
-        - Forms a complete ring around the arrow panel
-        - Has paths along all four edges of the screen
-        - Fills walkable areas completely (no isolated walls)
+        - Forms paths around the arrow panel (rectangular or plus-shaped)
+        - Uses corner areas when available (plus shape)
+        - Ensures full connectivity from any point to any other
         """
-        # Strategy: Fill everything with paths EXCEPT:
-        # 1. The outer wall border
-        # 2. The forbidden zone
-        # 3. Some strategic walls to create interesting navigation
-        
-        # Start by making everything a path (except borders)
+        # Start by making everything a path (except borders and forbidden)
         for y in range(1, self.height - 1):
             for x in range(1, self.width - 1):
                 if not self.is_forbidden(x, y):
                     self._grid[y][x] = CellType.PATH
         
-        # Now add some walls to make it more interesting (but keep connectivity)
-        if self._forbidden_rect:
+        # Add some strategic walls to make it more interesting
+        # But be careful not to block connectivity
+        
+        # Only add internal walls if we have enough space
+        # For plus-shaped zones, the corners are already open
+        if self._forbidden_plus:
+            # Plus-shaped: add some walls but keep corners fully open
+            vx, vy, vw, vh = self._forbidden_plus['vertical']
+            hx, hy, hw, hh = self._forbidden_plus['horizontal']
+            
+            # Add walls in non-corner areas only
+            # Left side walls (between left edge and vertical strip, outside horizontal strip)
+            for y in range(2, self.height - 2):
+                if not (hy <= y < hy + hh):  # Not in horizontal strip row
+                    if 2 < vx - 2:  # If there's room for walls
+                        x = 3
+                        if not self.is_forbidden(x, y) and y % 3 != 0:
+                            self._grid[y][x] = CellType.WALL
+            
+            # Right side walls
+            for y in range(2, self.height - 2):
+                if not (hy <= y < hy + hh):  # Not in horizontal strip row
+                    right_x = self.width - 4
+                    if vx + vw + 2 < right_x:  # If there's room
+                        if not self.is_forbidden(right_x, y) and y % 3 != 0:
+                            self._grid[y][right_x] = CellType.WALL
+        
+        elif self._forbidden_rect:
+            # Rectangular: original wall placement
             fx, fy, fw, fh = self._forbidden_rect
             
-            # Add some internal walls on the left side (but not blocking paths)
             if fx > 4:
-                # Create a column of walls at x=3, but leave gaps for navigation
                 for y in range(3, self.height - 3):
-                    if y % 3 != 0:  # Leave gaps every 3 rows
+                    if y % 3 != 0:
                         self._grid[y][3] = CellType.WALL
             
-            # Add some internal walls on the right side
             if self.width - (fx + fw) > 4:
                 right_wall_x = self.width - 4
                 for y in range(3, self.height - 3):
-                    if y % 3 != 0:  # Leave gaps every 3 rows
+                    if y % 3 != 0:
                         self._grid[y][right_wall_x] = CellType.WALL
-            
-            # Add some internal walls on top (if there's room)
-            if fy > 3:
-                for x in range(3, self.width - 3):
-                    if not self.is_forbidden(x, 2) and x % 4 != 0:
-                        self._grid[2][x] = CellType.WALL
-            
-            # Add some internal walls on bottom (if there's room)
-            if self.height - (fy + fh) > 3:
-                bottom_wall_y = self.height - 3
-                for x in range(3, self.width - 3):
-                    if not self.is_forbidden(x, bottom_wall_y) and x % 4 != 0:
-                        self._grid[bottom_wall_y][x] = CellType.WALL
     
     def _place_start_and_goal(self):
         """Place start and goal positions on valid path cells"""
