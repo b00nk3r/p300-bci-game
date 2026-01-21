@@ -95,28 +95,59 @@ class TimingConfig:
 
 @dataclass
 class ArrowConfig:
-    """Arrow appearance settings"""
-    size: int = 100                   # Arrow size in pixels
+    """
+    Arrow appearance settings.
+    
+    Arrow specifications (for 3072×1920 resolution):
+    - Arrow icon box: 100×100 px (allowed range: 90-140 px)
+    - Triangle inside box: 80px length, 60px base width
+    - Panel size: 200×200 px per arrow
+    - Arrow-to-panel-edge margin: 50px (because 200 panel, 100 arrow)
+    """
+    size: int = 100                   # Arrow bounding box size in pixels
+    
+    # Triangle dimensions inside the bounding box
+    triangle_length: int = 80         # Length in pointing direction
+    triangle_base: int = 60           # Base width perpendicular to direction
     
     # Color scheme
     color_scheme: ColorScheme = ColorScheme.GRAY_WHITE
     
-    # Gray/White scheme colors
+    # Gray/White scheme colors (default)
     idle_color: Tuple[int, int, int] = (128, 128, 128)
     flash_color: Tuple[int, int, int] = (255, 255, 255)
     
-    # Panel behind arrows
-    panel_padding: int = 50
+    # Panel behind arrows (200×200 px total)
+    panel_size: int = 200             # Panel size in pixels
     panel_color: Tuple[int, int, int] = (0, 0, 0)
     panel_alpha: int = 200
+    
+    # Optional glow/border
+    glow_thickness: int = 20          # Border thickness when flashing
+    
+    @property
+    def panel_padding(self) -> int:
+        """Padding from arrow edge to panel edge"""
+        return (self.panel_size - self.size) // 2  # 50px with default values
 
 
 @dataclass
 class LayoutConfig:
-    """Arrow positioning"""
-    # Offset from screen center (in pixels)
-    horizontal_offset: int = 200
-    vertical_offset: int = 150
+    """
+    Arrow layout configuration.
+    
+    Specifications (for 3072×1920):
+    - Overlay window: 1150×1150 px (±50px), SQUARE, centered
+    - Arrow offset from center: 475 px (to achieve 1150px with 200px panels)
+    - Arrow size: 100×100 px
+    """
+    # Distance from screen center to arrow centers
+    # For 1150px square: offset = (1150 - 200) / 2 = 475px
+    horizontal_offset: int = 475      # Left/Right arrows
+    vertical_offset: int = 475        # Up/Down arrows (same for square)
+    
+    # Keep-out spacing from panels to game elements
+    keepout_margin: int = 50          # Recommended 50-90px
     
     def get_positions(self, screen_width: int, screen_height: int) -> dict:
         """Calculate arrow center positions"""
@@ -127,6 +158,31 @@ class LayoutConfig:
             Direction.LEFT: (cx - self.horizontal_offset, cy),
             Direction.RIGHT: (cx + self.horizontal_offset, cy),
         }
+    
+    def get_overlay_rect(
+        self, 
+        screen_width: int, 
+        screen_height: int, 
+        panel_size: int = 200
+    ) -> Tuple[int, int, int, int]:
+        """
+        Get the overall bounding rectangle containing all arrow panels.
+        
+        Target: 1150×1150 px square, centered
+        
+        Returns:
+            (left, top, width, height)
+        """
+        positions = self.get_positions(screen_width, screen_height)
+        half_panel = panel_size // 2
+        
+        # Find bounds of all panels
+        left = positions[Direction.LEFT][0] - half_panel
+        right = positions[Direction.RIGHT][0] + half_panel
+        top = positions[Direction.UP][1] - half_panel
+        bottom = positions[Direction.DOWN][1] + half_panel
+        
+        return (left, top, right - left, bottom - top)
 
 
 @dataclass
