@@ -99,41 +99,52 @@ class ArrowRenderer:
             self._panel_color = (240, 240, 240)  # Light
             
     def _create_panel_surface(self):
-        """Create the semi-transparent panel behind arrows"""
-        # Calculate panel bounds based on arrow positions
-        positions = list(self._positions.values())
+        """
+        Create the panel surfaces for arrows.
+        
+        Creates individual 200×200 panels behind each arrow, plus calculates
+        the overall overlay window bounds.
+        """
+        # Get arrow positions
+        positions = self._positions
         
         if not positions:
             return
-            
-        # Find bounding box of all arrows
-        xs = [p[0] for p in positions]
-        ys = [p[1] for p in positions]
         
-        padding = self.arrow_config.panel_padding + self.arrow_config.size // 2
+        panel_size = self.arrow_config.panel_size
+        half_panel = panel_size // 2
         
-        left = min(xs) - padding
-        right = max(xs) + padding
-        top = min(ys) - padding
-        bottom = max(ys) + padding
+        # Calculate overall overlay window bounds (contains all 4 panels)
+        # At 3072×1920: left=975, right=2097, top=380, bottom=1540
+        left = positions[Direction.LEFT][0] - half_panel
+        right = positions[Direction.RIGHT][0] + half_panel
+        top = positions[Direction.UP][1] - half_panel
+        bottom = positions[Direction.DOWN][1] + half_panel
         
         width = right - left
         height = bottom - top
         
-        # Create panel surface with alpha
+        # Store the overall panel rect (used for forbidden zone in maze)
+        self._panel_rect = pygame.Rect(left, top, width, height)
+        
+        # Create a surface for the entire overlay area with transparency
         self._panel_surface = pygame.Surface((width, height), pygame.SRCALPHA)
         
-        # Fill with semi-transparent color
+        # Draw individual 200×200 panels for each arrow direction
         panel_color_with_alpha = (*self._panel_color, self.arrow_config.panel_alpha)
-        self._panel_surface.fill(panel_color_with_alpha)
         
-        # Optional: Add subtle border
-        border_color = tuple(min(255, c + 30) for c in self._panel_color) + (self.arrow_config.panel_alpha,)
-        pygame.draw.rect(self._panel_surface, border_color, 
-                         self._panel_surface.get_rect(), 2)
-        
-        # Store panel position
-        self._panel_rect = pygame.Rect(left, top, width, height)
+        for direction, pos in positions.items():
+            # Calculate panel rect relative to the overlay surface
+            panel_left = pos[0] - half_panel - left
+            panel_top = pos[1] - half_panel - top
+            panel_rect = pygame.Rect(panel_left, panel_top, panel_size, panel_size)
+            
+            # Draw filled panel
+            pygame.draw.rect(self._panel_surface, panel_color_with_alpha, panel_rect)
+            
+            # Optional: Add subtle border
+            border_color = tuple(min(255, c + 30) for c in self._panel_color) + (self.arrow_config.panel_alpha,)
+            pygame.draw.rect(self._panel_surface, border_color, panel_rect, 2)
         
     def _create_arrow_surfaces(self):
         """Pre-render arrow surfaces for each direction and state"""
@@ -159,10 +170,14 @@ class ArrowRenderer:
         """
         Create a single arrow surface.
         
+        The arrow is a solid filled isosceles triangle:
+        - Bounding box: 100×100 px (configurable via size)
+        - Triangle: 80px length, 60px base (configurable in ArrowConfig)
+        
         Args:
             direction: Which way the arrow points
             color: RGB color tuple
-            size: Size of the arrow in pixels
+            size: Size of the bounding box in pixels
             
         Returns:
             pygame.Surface with the arrow drawn on it
@@ -170,10 +185,10 @@ class ArrowRenderer:
         # Create surface with transparency
         surface = pygame.Surface((size, size), pygame.SRCALPHA)
         
-        # Calculate arrow points
+        # Calculate arrow points using configured dimensions
         points = self._get_arrow_points(direction, size)
         
-        # Draw filled arrow
+        # Draw filled arrow (solid triangle)
         pygame.draw.polygon(surface, color, points)
         
         # Optional: Add subtle outline for depth
@@ -190,7 +205,11 @@ class ArrowRenderer:
         """
         Calculate polygon points for an arrow shape.
         
-        The arrow is drawn as a triangle pointing in the specified direction.
+        Creates a solid isosceles triangle with:
+        - Length (in pointing direction): triangle_length (default 80px)
+        - Base width: triangle_base (default 60px)
+        
+        The triangle is centered in the bounding box.
         
         Args:
             direction: Which way the arrow points
@@ -199,41 +218,56 @@ class ArrowRenderer:
         Returns:
             List of (x, y) tuples for polygon vertices
         """
-        # Margins from edge
-        margin = size * 0.1
+        # Get triangle dimensions from config
+        length = self.arrow_config.triangle_length  # 80px default
+        base = self.arrow_config.triangle_base      # 60px default
+        half_base = base / 2
         
-        # Arrow dimensions
-        tip = margin                    # Tip position from edge
-        base = size - margin            # Base position from edge
-        center = size / 2               # Center line
-        width = size * 0.35             # Half-width of arrow base
+        # Center of the bounding box
+        center = size / 2
+        
+        # Calculate margins to center the triangle
+        # For a 100px box with 80px length: margin = (100-80)/2 = 10px
+        length_margin = (size - length) / 2
         
         if direction == Direction.UP:
+            # Tip at top, base at bottom
+            tip_y = length_margin
+            base_y = size - length_margin
             return [
-                (center, tip),              # Tip (top)
-                (center - width, base),     # Bottom left
-                (center + width, base),     # Bottom right
+                (center, tip_y),                    # Tip (top center)
+                (center - half_base, base_y),       # Bottom left
+                (center + half_base, base_y),       # Bottom right
             ]
             
         elif direction == Direction.DOWN:
+            # Tip at bottom, base at top
+            tip_y = size - length_margin
+            base_y = length_margin
             return [
-                (center, base),             # Tip (bottom)
-                (center - width, tip),      # Top left
-                (center + width, tip),      # Top right
+                (center, tip_y),                    # Tip (bottom center)
+                (center - half_base, base_y),       # Top left
+                (center + half_base, base_y),       # Top right
             ]
             
         elif direction == Direction.LEFT:
+            # Tip at left, base at right
+            tip_x = length_margin
+            base_x = size - length_margin
             return [
-                (tip, center),              # Tip (left)
-                (base, center - width),     # Top right
-                (base, center + width),     # Bottom right
+                (tip_x, center),                    # Tip (left center)
+                (base_x, center - half_base),       # Top right
+                (base_x, center + half_base),       # Bottom right
             ]
             
         elif direction == Direction.RIGHT:
+            # Tip at right, base at left
+            tip_x = size - length_margin
+            base_x = length_margin
             return [
-                (base, center),             # Tip (right)
-                (tip, center - width),      # Top left
-                (tip, center + width),      # Bottom left
+                (tip_x, center),                    # Tip (right center)
+                (base_x, center - half_base),       # Top left
+                (base_x, center + half_base),       # Bottom left
             ]
             
         return []

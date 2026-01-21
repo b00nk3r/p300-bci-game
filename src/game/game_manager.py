@@ -65,6 +65,9 @@ class GameManagerConfig:
     # Cell size (auto-calculated if 0)
     cell_size: int = 0
     
+    # Generation mode
+    use_corridors: bool = False  # If True, generate simple corridors instead of maze
+    
     # Level completion
     require_all_collectibles: bool = True
     require_reach_goal: bool = False  # Optional: also reach goal square
@@ -193,18 +196,20 @@ class GameManager:
             self.config.max_maze_height
         )
         
-        # Ensure odd dimensions
-        if width % 2 == 0:
-            width += 1
-        if height % 2 == 0:
-            height += 1
+        # Ensure odd dimensions only for traditional maze mode (not corridors)
+        if not self.config.use_corridors:
+            if width % 2 == 0:
+                width += 1
+            if height % 2 == 0:
+                height += 1
             
         # Create maze config
         maze_config = MazeConfig(
             width=width,
             height=height,
             cell_size=self.config.cell_size,
-            seed=None  # Random each time
+            seed=None,  # Random each time
+            use_corridors=self.config.use_corridors
         )
         
         self.maze = Maze(maze_config)
@@ -242,8 +247,8 @@ class GameManager:
             grid_h = grid_y2 - grid_y1
             
             # Only set forbidden zone if it leaves room for maze around it
-            # With larger cells, we need less corridor width
-            min_corridor_width = 2  # Minimum cells needed for a corridor
+            # With corridor mode, we only need 1 cell for paths
+            min_corridor_width = 1 if self.config.use_corridors else 2
             if (grid_x1 >= min_corridor_width and 
                 width - grid_x2 >= min_corridor_width and
                 grid_y1 >= min_corridor_width and 
@@ -254,19 +259,18 @@ class GameManager:
                 print(f"  Maze: {width}x{height}, Calculated zone: ({grid_x1},{grid_y1}) size {grid_w}x{grid_h}")
                 print(f"  Corridors: L={grid_x1}, R={width-grid_x2}, T={grid_y1}, B={height-grid_y2}")
                 
-                # Try with smaller padding
-                padding = 1
-                grid_x1 = max(0, int(panel_left // cell_size) - padding)
-                grid_y1 = max(0, int(panel_top // cell_size) - padding)
-                grid_x2 = min(width, int((panel_right + cell_size - 1) // cell_size) + padding)
-                grid_y2 = min(height, int((panel_bottom + cell_size - 1) // cell_size) + padding)
+                # Try with no padding (just cover the panel exactly)
+                padding = 0
+                grid_x1 = max(0, int(panel_left // cell_size))
+                grid_y1 = max(0, int(panel_top // cell_size))
+                grid_x2 = min(width, int((panel_right + cell_size - 1) // cell_size))
+                grid_y2 = min(height, int((panel_bottom + cell_size - 1) // cell_size))
                 grid_w = grid_x2 - grid_x1
                 grid_h = grid_y2 - grid_y1
                 
-                if (grid_x1 >= 1 and width - grid_x2 >= 1 and
-                    grid_y1 >= 1 and height - grid_y2 >= 1):
-                    self.maze.set_forbidden_zone((grid_x1, grid_y1, grid_w, grid_h))
-                    print(f"  Reduced padding, new zone: ({grid_x1},{grid_y1}) size {grid_w}x{grid_h}")
+                # Set it even if corridors are narrow - corridor mode handles this
+                self.maze.set_forbidden_zone((grid_x1, grid_y1, grid_w, grid_h))
+                print(f"  Using minimal zone: ({grid_x1},{grid_y1}) size {grid_w}x{grid_h}")
         
         # Generate maze
         self.maze.generate()

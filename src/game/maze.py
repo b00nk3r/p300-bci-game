@@ -47,12 +47,16 @@ class MazeConfig:
     # In grid coordinates
     forbidden_rect: Optional[Tuple[int, int, int, int]] = None  # (x, y, width, height)
     
+    # Generation mode
+    use_corridors: bool = False  # If True, generate simple corridors instead of maze
+    
     def __post_init__(self):
-        # Ensure odd dimensions for proper maze generation
-        if self.width % 2 == 0:
-            self.width += 1
-        if self.height % 2 == 0:
-            self.height += 1
+        # Ensure odd dimensions for proper maze generation (only if not using corridors)
+        if not self.use_corridors:
+            if self.width % 2 == 0:
+                self.width += 1
+            if self.height % 2 == 0:
+                self.height += 1
 
 
 class Maze:
@@ -120,7 +124,11 @@ class Maze:
         
     def generate(self, seed: Optional[int] = None):
         """
-        Generate a new maze using recursive backtracking.
+        Generate a new maze.
+        
+        Uses either:
+        - Recursive backtracking for complex mazes
+        - Corridor generation for simple paths (when use_corridors=True)
         
         Args:
             seed: Random seed for reproducibility (overrides config)
@@ -134,16 +142,95 @@ class Maze:
         # Reset grid
         self._init_grid()
         
-        # Start from (1, 1) - must be odd coordinates
-        self._carve_passages(1, 1)
+        if self.config.use_corridors:
+            # Simple corridor generation for large cells
+            self._generate_corridors()
+        else:
+            # Traditional maze generation
+            # Start from (1, 1) - must be odd coordinates
+            self._carve_passages(1, 1)
         
-        # Set start and goal
-        self._grid[self._start_pos[1]][self._start_pos[0]] = CellType.START
-        self._grid[self._goal_pos[1]][self._goal_pos[0]] = CellType.GOAL
+        # Set start and goal positions
+        self._place_start_and_goal()
         
-        # Optionally remove some dead ends to create loops
-        if self.config.remove_dead_ends > 0:
+        # Optionally remove some dead ends to create loops (only for maze mode)
+        if not self.config.use_corridors and self.config.remove_dead_ends > 0:
             self._remove_dead_ends()
+    
+    def _generate_corridors(self):
+        """
+        Generate simple corridors around the forbidden zone.
+        
+        Creates a continuous path system that:
+        - Forms a complete ring around the arrow panel
+        - Has paths along all four edges of the screen
+        - Fills walkable areas completely (no isolated walls)
+        """
+        # Strategy: Fill everything with paths EXCEPT:
+        # 1. The outer wall border
+        # 2. The forbidden zone
+        # 3. Some strategic walls to create interesting navigation
+        
+        # Start by making everything a path (except borders)
+        for y in range(1, self.height - 1):
+            for x in range(1, self.width - 1):
+                if not self.is_forbidden(x, y):
+                    self._grid[y][x] = CellType.PATH
+        
+        # Now add some walls to make it more interesting (but keep connectivity)
+        if self._forbidden_rect:
+            fx, fy, fw, fh = self._forbidden_rect
+            
+            # Add some internal walls on the left side (but not blocking paths)
+            if fx > 4:
+                # Create a column of walls at x=3, but leave gaps for navigation
+                for y in range(3, self.height - 3):
+                    if y % 3 != 0:  # Leave gaps every 3 rows
+                        self._grid[y][3] = CellType.WALL
+            
+            # Add some internal walls on the right side
+            if self.width - (fx + fw) > 4:
+                right_wall_x = self.width - 4
+                for y in range(3, self.height - 3):
+                    if y % 3 != 0:  # Leave gaps every 3 rows
+                        self._grid[y][right_wall_x] = CellType.WALL
+            
+            # Add some internal walls on top (if there's room)
+            if fy > 3:
+                for x in range(3, self.width - 3):
+                    if not self.is_forbidden(x, 2) and x % 4 != 0:
+                        self._grid[2][x] = CellType.WALL
+            
+            # Add some internal walls on bottom (if there's room)
+            if self.height - (fy + fh) > 3:
+                bottom_wall_y = self.height - 3
+                for x in range(3, self.width - 3):
+                    if not self.is_forbidden(x, bottom_wall_y) and x % 4 != 0:
+                        self._grid[bottom_wall_y][x] = CellType.WALL
+    
+    def _place_start_and_goal(self):
+        """Place start and goal positions on valid path cells"""
+        # Find valid start position (prefer top-left area)
+        for y in range(1, self.height - 1):
+            for x in range(1, self.width - 1):
+                if self._grid[y][x] == CellType.PATH and not self.is_forbidden(x, y):
+                    self._start_pos = (x, y)
+                    self._grid[y][x] = CellType.START
+                    break
+            else:
+                continue
+            break
+        
+        # Find valid goal position (prefer bottom-right area)
+        for y in range(self.height - 2, 0, -1):
+            for x in range(self.width - 2, 0, -1):
+                if self._grid[y][x] == CellType.PATH and not self.is_forbidden(x, y):
+                    self._goal_pos = (x, y)
+                    self._grid[y][x] = CellType.GOAL
+                    break
+            else:
+                continue
+            break
             
     def _carve_passages(self, start_x: int, start_y: int):
         """
