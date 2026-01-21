@@ -99,7 +99,7 @@ class ArrowConfig:
     Arrow appearance settings.
     
     Arrow specifications (for 3072×1920 resolution):
-    - Arrow icon box: 100×100 px (allowed range: 90-140 px)
+    - Arrow icon box: 100×100 px
     - Triangle inside box: 80px length, 60px base width
     - Panel size: 200×200 px per arrow
     - Arrow-to-panel-edge margin: 50px (because 200 panel, 100 arrow)
@@ -107,8 +107,8 @@ class ArrowConfig:
     size: int = 100                   # Arrow bounding box size in pixels
     
     # Triangle dimensions inside the bounding box
-    triangle_length: int = 80         # Length in pointing direction
-    triangle_base: int = 60           # Base width perpendicular to direction
+    triangle_length: int = 100         # Length in pointing direction
+    triangle_base: int = 100           # Base width perpendicular to direction
     
     # Color scheme
     color_scheme: ColorScheme = ColorScheme.GRAY_WHITE
@@ -120,7 +120,7 @@ class ArrowConfig:
     # Panel behind arrows (200×200 px total)
     panel_size: int = 200             # Panel size in pixels
     panel_color: Tuple[int, int, int] = (0, 0, 0)
-    panel_alpha: int = 200
+    panel_alpha: int = 153            # ~60% opacity (153/255)
     
     # Optional glow/border
     glow_thickness: int = 20          # Border thickness when flashing

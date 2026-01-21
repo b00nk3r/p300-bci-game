@@ -175,10 +175,18 @@ class Application:
         )
         
         self.game_manager = GameManager(game_config)
+        
+        # Get arrow positions for plus-shaped forbidden zone
+        arrow_positions = self.config.layout.get_positions(
+            self.config.display.width,
+            self.config.display.height
+        )
+        
         self.game_manager.initialize(
             self.config.display.width,
             self.config.display.height,
-            panel_rect
+            panel_rect,
+            arrow_positions
         )
         
         # Set callbacks

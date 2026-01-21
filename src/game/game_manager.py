@@ -130,7 +130,8 @@ class GameManager:
         self, 
         screen_width: int, 
         screen_height: int,
-        arrow_panel_rect: pygame.Rect = None
+        arrow_panel_rect: pygame.Rect = None,
+        arrow_positions: dict = None
     ):
         """
         Initialize game manager.
@@ -138,11 +139,13 @@ class GameManager:
         Args:
             screen_width: Screen width in pixels
             screen_height: Screen height in pixels
-            arrow_panel_rect: Rectangle of arrow panel (to avoid overlapping)
+            arrow_panel_rect: Rectangle of arrow panel (bounding box)
+            arrow_positions: Dict mapping Direction to (x, y) center positions
         """
         self._screen_width = screen_width
         self._screen_height = screen_height
         self._arrow_panel_rect = arrow_panel_rect
+        self._arrow_positions = arrow_positions or {}
         
         # Calculate cell size based on screen
         if self.config.cell_size == 0:
@@ -214,10 +217,12 @@ class GameManager:
         
         self.maze = Maze(maze_config)
         
-        # Calculate forbidden zone from arrow panel rect (in grid coordinates)
-        # This ensures the arrow panel area acts as an impassable wall
-        if self._arrow_panel_rect:
+        # Calculate plus-shaped forbidden zone from arrow positions
+        # The plus shape gives more game area in the corners
+        if self._arrow_panel_rect and hasattr(self, '_arrow_positions') and self._arrow_positions:
             cell_size = self.config.cell_size
+            panel_size = 200  # Arrow panel size (should match ArrowConfig)
+            half_panel = panel_size // 2
             
             # Calculate maze offset (maze is centered on screen)
             maze_width_px = width * cell_size
@@ -225,52 +230,53 @@ class GameManager:
             offset_x = (self._screen_width - maze_width_px) // 2
             offset_y = (self._screen_height - maze_height_px) // 2
             
-            # Convert arrow panel rect to grid coordinates
-            # Use floor for left/top and ceil for right/bottom to ensure full coverage
-            # Add padding to create a buffer zone around the panel
-            padding = 2  # Extra cells of padding around the arrow panel
+            # Get arrow positions
+            from config import Direction
+            up_pos = self._arrow_positions.get(Direction.UP)
+            down_pos = self._arrow_positions.get(Direction.DOWN)
+            left_pos = self._arrow_positions.get(Direction.LEFT)
+            right_pos = self._arrow_positions.get(Direction.RIGHT)
             
-            # Calculate grid boundaries that fully contain the arrow panel
-            # Any cell that even partially overlaps with the panel should be forbidden
-            panel_left = self._arrow_panel_rect.left - offset_x
-            panel_top = self._arrow_panel_rect.top - offset_y
-            panel_right = self._arrow_panel_rect.right - offset_x
-            panel_bottom = self._arrow_panel_rect.bottom - offset_y
-            
-            # Convert to grid coords with proper rounding
-            grid_x1 = max(0, int(panel_left // cell_size) - padding)
-            grid_y1 = max(0, int(panel_top // cell_size) - padding)
-            grid_x2 = min(width, int((panel_right + cell_size - 1) // cell_size) + padding)
-            grid_y2 = min(height, int((panel_bottom + cell_size - 1) // cell_size) + padding)
-            
-            grid_w = grid_x2 - grid_x1
-            grid_h = grid_y2 - grid_y1
-            
-            # Only set forbidden zone if it leaves room for maze around it
-            # With corridor mode, we only need 1 cell for paths
-            min_corridor_width = 1 if self.config.use_corridors else 2
-            if (grid_x1 >= min_corridor_width and 
-                width - grid_x2 >= min_corridor_width and
-                grid_y1 >= min_corridor_width and 
-                height - grid_y2 >= min_corridor_width):
-                self.maze.set_forbidden_zone((grid_x1, grid_y1, grid_w, grid_h))
-            else:
-                print(f"Warning: Arrow panel too large for maze, adjusting forbidden zone")
-                print(f"  Maze: {width}x{height}, Calculated zone: ({grid_x1},{grid_y1}) size {grid_w}x{grid_h}")
-                print(f"  Corridors: L={grid_x1}, R={width-grid_x2}, T={grid_y1}, B={height-grid_y2}")
+            if up_pos and down_pos and left_pos and right_pos:
+                # Calculate vertical strip (just the 200px wide column from Up to Down)
+                # This should be narrow, not the full height
+                vert_center_x = up_pos[0]
+                vert_left_px = vert_center_x - half_panel - offset_x
+                vert_right_px = vert_center_x + half_panel - offset_x
+                vert_top_px = up_pos[1] - half_panel - offset_y
+                vert_bottom_px = down_pos[1] + half_panel - offset_y
                 
-                # Try with no padding (just cover the panel exactly)
+                # Calculate horizontal strip (just the 200px tall row from Left to Right)
+                horiz_center_y = left_pos[1]
+                horiz_left_px = left_pos[0] - half_panel - offset_x
+                horiz_right_px = right_pos[0] + half_panel - offset_x
+                horiz_top_px = horiz_center_y - half_panel - offset_y
+                horiz_bottom_px = horiz_center_y + half_panel - offset_y
+                
+                # Convert to grid coordinates (no extra padding - just cover the panels)
                 padding = 0
-                grid_x1 = max(0, int(panel_left // cell_size))
-                grid_y1 = max(0, int(panel_top // cell_size))
-                grid_x2 = min(width, int((panel_right + cell_size - 1) // cell_size))
-                grid_y2 = min(height, int((panel_bottom + cell_size - 1) // cell_size))
-                grid_w = grid_x2 - grid_x1
-                grid_h = grid_y2 - grid_y1
                 
-                # Set it even if corridors are narrow - corridor mode handles this
-                self.maze.set_forbidden_zone((grid_x1, grid_y1, grid_w, grid_h))
-                print(f"  Using minimal zone: ({grid_x1},{grid_y1}) size {grid_w}x{grid_h}")
+                # Vertical strip grid coords
+                vx1 = max(0, int(vert_left_px // cell_size) - padding)
+                vy1 = max(0, int(vert_top_px // cell_size) - padding)
+                vx2 = min(width, int((vert_right_px + cell_size - 1) // cell_size) + padding)
+                vy2 = min(height, int((vert_bottom_px + cell_size - 1) // cell_size) + padding)
+                
+                # Horizontal strip grid coords
+                hx1 = max(0, int(horiz_left_px // cell_size) - padding)
+                hy1 = max(0, int(horiz_top_px // cell_size) - padding)
+                hx2 = min(width, int((horiz_right_px + cell_size - 1) // cell_size) + padding)
+                hy2 = min(height, int((horiz_bottom_px + cell_size - 1) // cell_size) + padding)
+                
+                # Set plus-shaped forbidden zone
+                self.maze.set_forbidden_plus(
+                    vertical=(vx1, vy1, vx2 - vx1, vy2 - vy1),
+                    horizontal=(hx1, hy1, hx2 - hx1, hy2 - hy1)
+                )
+                
+                print(f"  Plus-shaped forbidden zone:")
+                print(f"    Vertical strip: ({vx1},{vy1}) size {vx2-vx1}×{vy2-vy1}")
+                print(f"    Horizontal strip: ({hx1},{hy1}) size {hx2-hx1}×{hy2-hy1}")
         
         # Generate maze
         self.maze.generate()
