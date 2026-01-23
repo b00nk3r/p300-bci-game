@@ -107,8 +107,8 @@ class ArrowConfig:
     size: int = 100                   # Arrow bounding box size in pixels
     
     # Triangle dimensions inside the bounding box
-    triangle_length: int = 100         # Length in pointing direction
-    triangle_base: int = 100           # Base width perpendicular to direction
+    triangle_length: int = 100        # Length in pointing direction
+    triangle_base: int = 100          # Base width perpendicular to direction
     
     # Color scheme
     color_scheme: ColorScheme = ColorScheme.GRAY_WHITE

@@ -80,23 +80,25 @@ class ArrowRenderer:
         self._create_arrow_surfaces()
         
     def _update_colors(self):
-        """Update colors based on current color scheme"""
+        """Update colors based on current color scheme (all grayscale)"""
         scheme = self.arrow_config.color_scheme
         
         if scheme == ColorScheme.GRAY_WHITE:
-            self._idle_color = (128, 128, 128)   # Gray
-            self._flash_color = (255, 255, 255)  # White
+            self._idle_color = (128, 128, 128)   # Medium gray
+            self._flash_color = (255, 255, 255)  # Brightest white
             self._panel_color = (0, 0, 0)        # Black
             
         elif scheme == ColorScheme.GREEN_BLUE:
-            self._idle_color = (0, 64, 128)      # Dark blue
-            self._flash_color = (0, 255, 128)    # Bright green
+            # Now grayscale variant: darker idle, brightest white flash
+            self._idle_color = (80, 80, 80)      # Dark gray
+            self._flash_color = (255, 255, 255)  # Brightest white
             self._panel_color = (0, 0, 0)        # Black
             
         elif scheme == ColorScheme.INVERTED:
+            # Inverted grayscale: light idle, dark flash
             self._idle_color = (200, 200, 200)   # Light gray
-            self._flash_color = (40, 40, 40)     # Dark
-            self._panel_color = (240, 240, 240)  # Light
+            self._flash_color = (255, 255, 255)  # Brightest white (changed from dark)
+            self._panel_color = (40, 40, 40)     # Dark gray panel
             
     def _create_panel_surface(self):
         """
