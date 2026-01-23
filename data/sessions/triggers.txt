@@ -529,3 +529,49 @@
 # timestamp_ms, trigger_code, label
 # Session ended
 
+# Session started at 2026-01-23 12:35:00
+# timestamp_ms, trigger_code, label
+2088.904, 1, trial_start
+2089.138, 13, flash_right
+2326.493, 10, flash_up
+2550.330, 11, flash_down
+2777.061, 12, flash_left
+3191.965, 11, flash_down
+3419.323, 12, flash_left
+3654.651, 10, flash_up
+3878.406, 13, flash_right
+4302.876, 13, flash_right
+4522.490, 12, flash_left
+4747.525, 10, flash_up
+4965.167, 11, flash_down
+5391.417, 12, flash_left
+5616.239, 10, flash_up
+5855.682, 11, flash_down
+6075.036, 13, flash_right
+6502.883, 13, flash_right
+6722.948, 11, flash_down
+6951.877, 12, flash_left
+7170.696, 10, flash_up
+7604.371, 11, flash_down
+7827.702, 13, flash_right
+8045.432, 12, flash_left
+8270.075, 10, flash_up
+8690.950, 12, flash_left
+8928.948, 11, flash_down
+9151.202, 10, flash_up
+9375.346, 13, flash_right
+9795.253, 12, flash_left
+10015.265, 13, flash_right
+10252.301, 11, flash_down
+10480.112, 10, flash_up
+10893.348, 11, flash_down
+11131.044, 12, flash_left
+11350.072, 13, flash_right
+11569.314, 10, flash_up
+11994.530, 10, flash_up
+12229.799, 11, flash_down
+12462.041, 12, flash_left
+12664.656, 13, flash_right
+12769.139, 2, trial_end
+# Session ended
+

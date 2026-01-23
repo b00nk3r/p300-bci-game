@@ -34,25 +34,25 @@ class RenderConfig:
     cell_size: int = 32
     
     # Maze colors (grayscale to not interfere with arrows)
-    wall_color: Tuple[int, int, int] = (50, 50, 55)
-    path_color: Tuple[int, int, int] = (30, 30, 35)
-    start_color: Tuple[int, int, int] = (40, 60, 40)
-    goal_color: Tuple[int, int, int] = (60, 40, 60)
+    wall_color: Tuple[int, int, int] = (50, 50, 50)
+    path_color: Tuple[int, int, int] = (30, 30, 30)
+    start_color: Tuple[int, int, int] = (45, 45, 45)
+    goal_color: Tuple[int, int, int] = (55, 55, 55)
     
-    # Player colors
-    player_color: Tuple[int, int, int] = (100, 180, 100)
-    player_outline: Tuple[int, int, int] = (60, 140, 60)
-    player_direction_color: Tuple[int, int, int] = (150, 220, 150)
+    # Player colors (grayscale)
+    player_color: Tuple[int, int, int] = (160, 160, 160)
+    player_outline: Tuple[int, int, int] = (120, 120, 120)
+    player_direction_color: Tuple[int, int, int] = (200, 200, 200)
     
-    # Collectible colors
-    coin_color: Tuple[int, int, int] = (200, 180, 50)
-    gem_color: Tuple[int, int, int] = (50, 180, 200)
-    star_color: Tuple[int, int, int] = (220, 200, 80)
+    # Collectible colors (different gray shades for variety)
+    coin_color: Tuple[int, int, int] = (180, 180, 180)
+    gem_color: Tuple[int, int, int] = (140, 140, 140)
+    star_color: Tuple[int, int, int] = (200, 200, 200)
     
-    # UI colors
-    ui_bg_color: Tuple[int, int, int] = (20, 20, 25)
-    ui_text_color: Tuple[int, int, int] = (180, 180, 190)
-    ui_highlight_color: Tuple[int, int, int] = (100, 180, 100)
+    # UI colors (grayscale)
+    ui_bg_color: Tuple[int, int, int] = (20, 20, 20)
+    ui_text_color: Tuple[int, int, int] = (180, 180, 180)
+    ui_highlight_color: Tuple[int, int, int] = (220, 220, 220)
     
     # Sizes
     player_size_ratio: float = 0.65   # Player size relative to cell
@@ -116,7 +116,7 @@ class GameRenderer:
             screen_width: Screen width in pixels
             screen_height: Screen height in pixels
             maze: Maze to render
-            arrow_panel_rect: Rectangle of arrow panel (hole in maze)
+            arrow_panel_rect: Rectangle of arrow panel (for reference)
         """
         cell_size = self.config.cell_size
         
@@ -128,13 +128,28 @@ class GameRenderer:
         self._offset_x = (screen_width - self._maze_width_px) // 2
         self._offset_y = (screen_height - self._maze_height_px) // 2
         
-        # Use maze's forbidden zone for the hole (ensures consistency)
+        # The hole is now determined by the maze's forbidden zone
+        # which can be either rectangular or plus-shaped
         self._hole_rect = arrow_panel_rect
-        if maze._forbidden_rect:
+        
+        # For rendering, we use the maze's is_forbidden() method
+        # which handles both rectangular and plus-shaped zones
+        if maze._forbidden_plus:
+            # Store plus shape for hole rendering
+            vx, vy, vw, vh = maze._forbidden_plus['vertical']
+            hx, hy, hw, hh = maze._forbidden_plus['horizontal']
+            self._hole_grid_rect = None  # Not using single rect
+            self._hole_plus = {
+                'vertical': pygame.Rect(vx, vy, vw, vh),
+                'horizontal': pygame.Rect(hx, hy, hw, hh),
+            }
+        elif maze._forbidden_rect:
             fx, fy, fw, fh = maze._forbidden_rect
             self._hole_grid_rect = pygame.Rect(fx, fy, fw, fh)
+            self._hole_plus = None
         else:
             self._hole_grid_rect = None
+            self._hole_plus = None
         
         # Initialize fonts
         self._font_large = pygame.font.Font(None, 36)
@@ -156,7 +171,18 @@ class GameRenderer:
         return (screen_x, screen_y)
         
     def is_in_hole(self, grid_x: int, grid_y: int) -> bool:
-        """Check if grid position is inside the arrow panel hole"""
+        """Check if grid position is inside the hole (arrow panel area)"""
+        # Check plus-shaped hole
+        if hasattr(self, '_hole_plus') and self._hole_plus is not None:
+            # Check vertical strip
+            if self._hole_plus['vertical'].collidepoint(grid_x, grid_y):
+                return True
+            # Check horizontal strip
+            if self._hole_plus['horizontal'].collidepoint(grid_x, grid_y):
+                return True
+            return False
+        
+        # Check rectangular hole
         if self._hole_grid_rect is None:
             return False
         return self._hole_grid_rect.collidepoint(grid_x, grid_y)
@@ -411,7 +437,7 @@ class GameRenderer:
         screen.blit(bg_surface, panel_rect.topleft)
         
         # Border
-        pygame.draw.rect(screen, (60, 60, 70), panel_rect, 1, border_radius=5)
+        pygame.draw.rect(screen, (60, 60, 60), panel_rect, 1, border_radius=5)
         
         # Score
         score_text = self._font_medium.render(f"Score: {score}", True, self.config.ui_highlight_color)
@@ -583,14 +609,14 @@ def demo():
             score = collectibles.total_score
             
         # Draw
-        screen.fill((20, 20, 25))
+        screen.fill((20, 20, 20))
         renderer.draw_maze(screen, maze)
         renderer.draw_collectibles(screen, collectibles)
         renderer.draw_player(screen, player)
         
         # Draw placeholder for arrow panel
-        pygame.draw.rect(screen, (40, 40, 50), arrow_panel_rect)
-        pygame.draw.rect(screen, (80, 80, 90), arrow_panel_rect, 2)
+        pygame.draw.rect(screen, (40, 40, 40), arrow_panel_rect)
+        pygame.draw.rect(screen, (80, 80, 80), arrow_panel_rect, 2)
         
         renderer.draw_ui(
             screen, 
