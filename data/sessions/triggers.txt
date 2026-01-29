@@ -575,3 +575,160 @@
 12769.139, 2, trial_end
 # Session ended
 
+# Session started at 2026-01-23 13:04:16
+# timestamp_ms, trigger_code, label
+10516.017, 1, trial_start
+10516.516, 13, flash_right
+10756.762, 11, flash_down
+10978.273, 10, flash_up
+11203.191, 12, flash_left
+11632.730, 11, flash_down
+11856.416, 10, flash_up
+12082.911, 13, flash_right
+12293.602, 12, flash_left
+12730.419, 10, flash_up
+12953.991, 13, flash_right
+13175.008, 11, flash_down
+13399.065, 12, flash_left
+13819.955, 12, flash_left
+14043.052, 13, flash_right
+14280.830, 11, flash_down
+14501.722, 10, flash_up
+14929.110, 11, flash_down
+15152.488, 12, flash_left
+15374.464, 13, flash_right
+15598.553, 10, flash_up
+16026.648, 10, flash_up
+16252.669, 13, flash_right
+16475.267, 12, flash_left
+16697.586, 11, flash_down
+17123.064, 13, flash_right
+17348.556, 10, flash_up
+17567.092, 12, flash_left
+17793.117, 11, flash_down
+18223.770, 13, flash_right
+18446.320, 10, flash_up
+18673.685, 11, flash_down
+18899.896, 12, flash_left
+19330.381, 12, flash_left
+19559.637, 10, flash_up
+19772.368, 11, flash_down
+19994.634, 13, flash_right
+20424.148, 12, flash_left
+20649.006, 10, flash_up
+20868.403, 11, flash_down
+21097.710, 13, flash_right
+21191.892, 2, trial_end
+26457.979, 2, trial_end
+26822.768, 1, trial_start
+26823.019, 11, flash_down
+27063.266, 13, flash_right
+27284.200, 10, flash_up
+27511.828, 12, flash_left
+27939.056, 13, flash_right
+28161.312, 11, flash_down
+28385.884, 12, flash_left
+28614.257, 10, flash_up
+29025.073, 13, flash_right
+29267.389, 10, flash_up
+29485.900, 11, flash_down
+29708.642, 12, flash_left
+30135.260, 10, flash_up
+30355.702, 11, flash_down
+30578.950, 12, flash_left
+30799.455, 13, flash_right
+31229.417, 13, flash_right
+31452.344, 10, flash_up
+31675.409, 11, flash_down
+31899.490, 12, flash_left
+32323.280, 11, flash_down
+32565.605, 12, flash_left
+32786.699, 13, flash_right
+33007.551, 10, flash_up
+33434.639, 12, flash_left
+33657.062, 11, flash_down
+33880.908, 13, flash_right
+34106.164, 10, flash_up
+34524.199, 11, flash_down
+34766.742, 13, flash_right
+34974.627, 12, flash_left
+35216.566, 10, flash_up
+35636.498, 11, flash_down
+35861.336, 13, flash_right
+36086.080, 12, flash_left
+36313.136, 10, flash_up
+36728.371, 11, flash_down
+36957.081, 13, flash_right
+37185.743, 10, flash_up
+37408.642, 12, flash_left
+37500.641, 2, trial_end
+38475.378, 2, trial_end
+# Session ended
+
+# Session started at 2026-01-28 12:47:59
+# timestamp_ms, trigger_code, label
+# Session ended
+
+# Session started at 2026-01-28 12:57:44
+# timestamp_ms, trigger_code, label
+# Session ended
+
+# Session started at 2026-01-28 18:37:21
+# timestamp_ms, trigger_code, label
+# Session ended
+
+# Session started at 2026-01-28 18:47:06
+# timestamp_ms, trigger_code, label
+# Session ended
+
+# Session started at 2026-01-28 19:05:32
+# timestamp_ms, trigger_code, label
+# Session ended
+
+# Session started at 2026-01-28 21:31:34
+# timestamp_ms, trigger_code, label
+8846.209, 1, trial_start
+8846.623, 13, flash_right
+9087.386, 12, flash_left
+9313.622, 11, flash_down
+9537.294, 10, flash_up
+9955.501, 10, flash_up
+10002.375, 2, trial_end
+# Session ended
+
+# Session started at 2026-01-28 23:08:39
+# timestamp_ms, trigger_code, label
+# Session ended
+
+# Session started at 2026-01-28 23:16:07
+# timestamp_ms, trigger_code, label
+# Session ended
+
+# Session started at 2026-01-28 23:17:59
+# timestamp_ms, trigger_code, label
+# Session ended
+
+# Session started at 2026-01-28 23:18:46
+# timestamp_ms, trigger_code, label
+# Session ended
+
+# Session started at 2026-01-28 23:22:20
+# timestamp_ms, trigger_code, label
+# Session ended
+
+# Session started at 2026-01-28 23:23:18
+# timestamp_ms, trigger_code, label
+# Session ended
+
+# Session started at 2026-01-28 23:31:42
+# timestamp_ms, trigger_code, label
+# Session ended
+
+# Session started at 2026-01-28 23:39:45
+# timestamp_ms, trigger_code, label
+# Session ended
+
+# Session started at 2026-01-28 23:44:36
+# timestamp_ms, trigger_code, label
+# Session ended
+

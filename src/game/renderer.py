@@ -1,25 +1,31 @@
 """
-Game Renderer
-=============
-Renders game elements using simple shapes.
+Game Renderer (Pixel Art Style)
+================================
+Renders game elements in a retro pixel art style.
 
-Designed for easy upgrading to sprites/textures later:
-- All rendering is centralized in this class
-- Each element type has its own draw method
-- Colors and sizes are configurable
-- Supports "hole" in maze for arrow panel
+Key design principles:
+- Blocky, pixelated graphics for maze, player, and collectibles
+- The plus-shaped arrow panel area remains UNCHANGED
+- All colors remain grayscale as specified
+- All sizes and proportions are preserved
+
+Pixel art techniques used:
+- Chunky grid-aligned shapes
+- Sharp edges without anti-aliasing
+- Simple iconic representations
+- Highlight/shadow details for depth
 
 Currently renders:
-- Maze walls and paths as rectangles
-- Player as a circle with direction indicator
-- Collectibles as circles/diamonds with animation
+- Maze walls and paths with brick/tile textures
+- Player as a pixel art character
+- Collectibles as pixel art icons
 - UI elements (score, status)
 """
 
 import pygame
 import math
 import time
-from typing import Tuple, Optional, Dict
+from typing import Tuple, Optional, Dict, List
 from dataclasses import dataclass
 
 from src.game.maze import Maze, CellType
@@ -55,7 +61,7 @@ class RenderConfig:
     ui_highlight_color: Tuple[int, int, int] = (220, 220, 220)
     
     # Sizes
-    player_size_ratio: float = 0.65   # Player size relative to cell
+    player_size_ratio: float = 1.0   # Player fills entire cell
     collectible_size_ratio: float = 0.4  # Collectible size relative to cell
 
 
@@ -93,6 +99,14 @@ class GameRenderer:
         # Cached surfaces for performance
         self._maze_surface: Optional[pygame.Surface] = None
         self._maze_dirty: bool = True
+        
+        # Pixel art texture caches
+        self._wall_texture: Optional[pygame.Surface] = None
+        self._path_texture: Optional[pygame.Surface] = None
+        self._start_texture: Optional[pygame.Surface] = None
+        self._goal_texture: Optional[pygame.Surface] = None
+        self._player_sprites: Dict[str, pygame.Surface] = {}
+        self._collectible_sprites: Dict[str, pygame.Surface] = {}
         
         # Fonts
         self._font_large: Optional[pygame.font.Font] = None
@@ -156,12 +170,549 @@ class GameRenderer:
         self._font_medium = pygame.font.Font(None, 28)
         self._font_small = pygame.font.Font(None, 22)
         
+        # Create pixel art textures for this cell size
+        self._create_pixel_textures(cell_size)
+        
         # Create maze surface cache
         self._maze_surface = pygame.Surface(
             (self._maze_width_px, self._maze_height_px),
             pygame.SRCALPHA  # Support transparency for hole
         )
         self._maze_dirty = True
+    
+    def _create_pixel_textures(self, cell_size: int):
+        """Create pixel art textures for maze tiles"""
+        # Wall texture - brick pattern
+        self._wall_texture = self._create_brick_texture(
+            cell_size, self.config.wall_color
+        )
+        
+        # Path textures - two versions for alternating pattern
+        # Version A: starts with light tile in top-left
+        # Version B: starts with dark tile in top-left
+        self._path_texture_a = self._create_floor_texture(
+            cell_size, self.config.path_color, start_light=True
+        )
+        self._path_texture_b = self._create_floor_texture(
+            cell_size, self.config.path_color, start_light=False
+        )
+        
+        # Start textures - two versions for alternating pattern
+        self._start_texture_a = self._create_start_texture(
+            cell_size, self.config.start_color, start_light=True
+        )
+        self._start_texture_b = self._create_start_texture(
+            cell_size, self.config.start_color, start_light=False
+        )
+        
+        # Goal textures - two versions for alternating pattern
+        self._goal_texture_a = self._create_goal_texture(
+            cell_size, self.config.goal_color, start_light=True
+        )
+        self._goal_texture_b = self._create_goal_texture(
+            cell_size, self.config.goal_color, start_light=False
+        )
+        
+        # Create player sprites
+        self._create_player_sprites(cell_size)
+        
+        # Create collectible sprites
+        self._create_collectible_sprites(cell_size)
+    
+    def _create_brick_texture(self, size: int, base_color: Tuple[int, int, int]) -> pygame.Surface:
+        """Create a true pixel art brick wall texture with small visible pixels"""
+        surface = pygame.Surface((size, size))
+        
+        # Small pixel size for authentic pixel art look
+        pixel_size = max(2, size // 40)  # ~4px pixels for 160px cell
+        
+        # Color palette
+        mortar = tuple(max(0, c - 35) for c in base_color)
+        mortar_dark = tuple(max(0, c - 45) for c in base_color)
+        brick_base = base_color
+        brick_dark = tuple(max(0, c - 12) for c in base_color)
+        brick_darker = tuple(max(0, c - 22) for c in base_color)
+        brick_light = tuple(min(255, c + 15) for c in base_color)
+        brick_lighter = tuple(min(255, c + 28) for c in base_color)
+        highlight = tuple(min(255, c + 40) for c in base_color)
+        
+        # Fill with mortar base
+        surface.fill(mortar)
+        
+        # Target larger bricks (~53x26 for 160px cell = 3 wide x 6 tall)
+        target_brick_width = 53
+        target_brick_height = 26
+        mortar_thickness = pixel_size
+        
+        bricks_per_row = max(1, round(size / target_brick_width))
+        brick_width = size // bricks_per_row
+        
+        rows_per_cell = max(1, round(size / target_brick_height))
+        brick_height = size // rows_per_cell
+        
+        # Pixels per brick
+        pixels_wide = brick_width // pixel_size
+        pixels_tall = brick_height // pixel_size
+        
+        for row in range(rows_per_cell + 1):
+            base_y = row * brick_height
+            # Offset every other row
+            offset = (brick_width // 2) if row % 2 else 0
+            
+            for col in range(-1, bricks_per_row + 2):
+                base_x = col * brick_width + offset
+                
+                # Skip if brick is completely outside
+                if base_x + brick_width <= 0 or base_x >= size:
+                    continue
+                if base_y + brick_height <= 0 or base_y >= size:
+                    continue
+                
+                # Draw each pixel within the brick
+                for py in range(pixels_tall):
+                    for px in range(pixels_wide):
+                        x = base_x + px * pixel_size
+                        y = base_y + py * pixel_size
+                        
+                        # Skip if outside surface
+                        if x < 0 or x >= size or y < 0 or y >= size:
+                            continue
+                        
+                        # Check if this pixel is in the mortar area
+                        is_mortar_bottom = py >= pixels_tall - 1
+                        is_mortar_right = px >= pixels_wide - 1
+                        
+                        if is_mortar_bottom or is_mortar_right:
+                            # Mortar pixels
+                            if is_mortar_bottom and is_mortar_right:
+                                color = mortar_dark
+                            else:
+                                color = mortar
+                        else:
+                            # Brick pixels
+                            is_top_edge = py == 0
+                            is_left_edge = px == 0
+                            is_near_bottom = py == pixels_tall - 2
+                            is_near_right = px == pixels_wide - 2
+                            is_near_top = py == 1
+                            is_near_left = px == 1
+                            
+                            if is_top_edge and is_left_edge:
+                                color = highlight  # Corner highlight
+                            elif is_top_edge:
+                                color = brick_lighter  # Top edge
+                            elif is_left_edge:
+                                color = brick_light  # Left edge
+                            elif is_near_bottom or is_near_right:
+                                color = brick_darker  # Near shadow edge
+                            elif is_near_top:
+                                color = brick_light  # Inner top highlight
+                            elif is_near_left:
+                                color = brick_light  # Inner left highlight
+                            else:
+                                # Interior - subtle texture
+                                noise = ((px * 7 + py * 13 + row * 3 + col * 5) % 7)
+                                if noise == 0:
+                                    color = brick_light
+                                elif noise == 1:
+                                    color = brick_dark
+                                else:
+                                    color = brick_base
+                            
+                        pygame.draw.rect(surface, color, (x, y, pixel_size, pixel_size))
+        
+        return surface
+    
+    def _create_floor_texture(self, size: int, base_color: Tuple[int, int, int], start_light: bool = True) -> pygame.Surface:
+        """Create a true pixel art floor tile texture with small visible pixels
+        
+        Args:
+            size: Texture size in pixels
+            base_color: Base color for the tiles
+            start_light: If True, top-left tile is light. If False, top-left tile is dark.
+        """
+        surface = pygame.Surface((size, size))
+        
+        # Small pixel size for authentic pixel art look (like the Viking sprite)
+        pixel_size = max(2, size // 40)  # ~4px pixels for 160px cell
+        
+        # Color palette with more variation for pixel art depth
+        base = base_color
+        dark = tuple(max(0, c - 15) for c in base_color)
+        darker = tuple(max(0, c - 25) for c in base_color)
+        light = tuple(min(255, c + 12) for c in base_color)
+        lighter = tuple(min(255, c + 22) for c in base_color)
+        highlight = tuple(min(255, c + 35) for c in base_color)
+        groove = tuple(max(0, c - 35) for c in base_color)
+        
+        # Target ~32px tiles
+        target_tile_size = 32
+        tiles_per_side = max(2, round(size / target_tile_size))
+        tile_size = size // tiles_per_side
+        
+        # Pixels per tile
+        pixels_per_tile = tile_size // pixel_size
+        
+        for tile_row in range(tiles_per_side):
+            for tile_col in range(tiles_per_side):
+                tile_x = tile_col * tile_size
+                tile_y = tile_row * tile_size
+                
+                # Determine if this is a light or dark tile
+                # Base pattern: (tile_row + tile_col) % 2 == 0 means light
+                # If start_light is False, invert the pattern
+                base_is_light = (tile_row + tile_col) % 2 == 0
+                is_light_tile = base_is_light if start_light else not base_is_light
+                
+                # Draw each pixel within the tile
+                for py in range(pixels_per_tile):
+                    for px in range(pixels_per_tile):
+                        x = tile_x + px * pixel_size
+                        y = tile_y + py * pixel_size
+                        
+                        # Determine pixel color based on position within tile
+                        # This creates the pixel art texture effect
+                        
+                        # Edge detection
+                        is_top_edge = py == 0
+                        is_left_edge = px == 0
+                        is_bottom_edge = py == pixels_per_tile - 1
+                        is_right_edge = px == pixels_per_tile - 1
+                        is_corner = (is_top_edge or is_bottom_edge) and (is_left_edge or is_right_edge)
+                        
+                        # Near-edge (1 pixel in from edge)
+                        is_near_top = py == 1
+                        is_near_left = px == 1
+                        is_near_bottom = py == pixels_per_tile - 2
+                        is_near_right = px == pixels_per_tile - 2
+                        
+                        if is_light_tile:
+                            # Light tile coloring
+                            if is_top_edge and is_left_edge:
+                                color = highlight  # Top-left corner highlight
+                            elif is_top_edge or is_left_edge:
+                                color = lighter  # Top and left edges
+                            elif is_bottom_edge or is_right_edge:
+                                color = groove  # Bottom and right grooves
+                            elif is_near_top or is_near_left:
+                                color = light  # Inner highlight
+                            elif is_near_bottom or is_near_right:
+                                color = dark  # Inner shadow
+                            else:
+                                # Interior pixels - add subtle noise pattern
+                                if (px + py) % 3 == 0:
+                                    color = light
+                                elif (px + py) % 5 == 0:
+                                    color = dark
+                                else:
+                                    color = base
+                        else:
+                            # Dark tile coloring
+                            if is_top_edge and is_left_edge:
+                                color = light  # Dimmer highlight
+                            elif is_top_edge or is_left_edge:
+                                color = base  # Edges
+                            elif is_bottom_edge or is_right_edge:
+                                color = groove  # Grooves
+                            elif is_near_top or is_near_left:
+                                color = dark
+                            elif is_near_bottom or is_near_right:
+                                color = darker
+                            else:
+                                # Interior pixels - add subtle noise pattern
+                                if (px + py) % 3 == 0:
+                                    color = base
+                                elif (px + py) % 5 == 0:
+                                    color = darker
+                                else:
+                                    color = dark
+                        
+                        pygame.draw.rect(surface, color, (x, y, pixel_size, pixel_size))
+        
+        return surface
+    
+    def _create_start_texture(self, size: int, base_color: Tuple[int, int, int], start_light: bool = True) -> pygame.Surface:
+        """Create a pixel art start position texture (same as floor, no markings)"""
+        return self._create_floor_texture(size, base_color, start_light=start_light)
+    
+    def _create_goal_texture(self, size: int, base_color: Tuple[int, int, int], start_light: bool = True) -> pygame.Surface:
+        """Create a pixel art goal position texture (same as floor, no markings)"""
+        return self._create_floor_texture(size, base_color, start_light=start_light)
+    
+    def _create_player_sprites(self, cell_size: int):
+        """Load the Viking player sprite from image file"""
+        size = int(cell_size * self.config.player_size_ratio)
+        
+        # Try to load the sprite image
+        sprite_path = None
+        possible_paths = [
+            "assets/viking_transparent.png",
+            "../assets/viking_transparent.png",
+            "src/game/../../assets/viking_transparent.png",
+        ]
+        
+        # Find the assets directory relative to working directory
+        import os
+        for path in possible_paths:
+            if os.path.exists(path):
+                sprite_path = path
+                break
+        
+        # Also try relative to this file's location
+        if sprite_path is None:
+            import pathlib
+            this_dir = pathlib.Path(__file__).parent.parent.parent
+            asset_path = this_dir / "assets" / "viking_transparent.png"
+            if asset_path.exists():
+                sprite_path = str(asset_path)
+        
+        if sprite_path and os.path.exists(sprite_path):
+            # Load the sprite image
+            original_sprite = pygame.image.load(sprite_path).convert_alpha()
+            
+            # Scale to fit the cell size while maintaining aspect ratio
+            orig_width, orig_height = original_sprite.get_size()
+            
+            # Scale to fill the cell (use the larger dimension to fill)
+            scale = size / max(orig_width, orig_height)
+            new_width = int(orig_width * scale)
+            new_height = int(orig_height * scale)
+            
+            # Scale the sprite
+            scaled_sprite = pygame.transform.smoothscale(original_sprite, (new_width, new_height))
+            
+            # Create a surface of the exact size needed, centered
+            final_sprite = pygame.Surface((size, size), pygame.SRCALPHA)
+            final_sprite.fill((0, 0, 0, 0))
+            
+            # Center the scaled sprite
+            x_offset = (size - new_width) // 2
+            y_offset = (size - new_height) // 2
+            final_sprite.blit(scaled_sprite, (x_offset, y_offset))
+            
+            # Use the same sprite for all directions (the character looks good facing forward)
+            directions = ['up', 'down', 'left', 'right', 'idle']
+            for direction in directions:
+                # For left/right, we could flip the sprite, but the Viking looks symmetric
+                if direction == 'left':
+                    # Flip horizontally for left direction
+                    flipped = pygame.transform.flip(final_sprite, True, False)
+                    self._player_sprites[direction] = flipped
+                else:
+                    self._player_sprites[direction] = final_sprite.copy()
+            
+            print(f"Loaded Viking sprite from {sprite_path}, scaled to {size}x{size}")
+        else:
+            # Fallback: create a simple placeholder
+            print(f"Warning: Could not find Viking sprite, using fallback")
+            self._create_fallback_player_sprites(cell_size)
+    
+    def _create_fallback_player_sprites(self, cell_size: int):
+        """Create simple fallback sprites if image not found"""
+        size = int(cell_size * self.config.player_size_ratio)
+        pixel_size = max(1, size // 16)
+        
+        color = self.config.player_color
+        outline = self.config.player_outline
+        
+        directions = ['up', 'down', 'left', 'right', 'idle']
+        
+        for direction in directions:
+            sprite = pygame.Surface((size, size), pygame.SRCALPHA)
+            sprite.fill((0, 0, 0, 0))
+            
+            # Simple circle as fallback
+            center = size // 2
+            radius = size // 2 - pixel_size * 2
+            pygame.draw.circle(sprite, color, (center, center), radius)
+            pygame.draw.circle(sprite, outline, (center, center), radius, pixel_size)
+            
+            self._player_sprites[direction] = sprite
+    
+    def _draw_pixel_outline(self, surface: pygame.Surface, color: Tuple[int, int, int], pixel_size: int):
+        """Draw a pixel-perfect outline around non-transparent pixels"""
+        width, height = surface.get_size()
+        
+        # Create a mask of the current content
+        for y in range(0, height, pixel_size):
+            for x in range(0, width, pixel_size):
+                # Check if this pixel is transparent
+                try:
+                    current_alpha = surface.get_at((x, y))[3]
+                except:
+                    continue
+                    
+                if current_alpha > 0:
+                    # Check neighbors for outline
+                    for dx, dy in [(-pixel_size, 0), (pixel_size, 0), (0, -pixel_size), (0, pixel_size)]:
+                        nx, ny = x + dx, y + dy
+                        if 0 <= nx < width and 0 <= ny < height:
+                            try:
+                                neighbor_alpha = surface.get_at((nx, ny))[3]
+                                if neighbor_alpha == 0:
+                                    pygame.draw.rect(surface, (*color, 255), (nx, ny, pixel_size, pixel_size))
+                            except:
+                                pass
+    
+    def _create_collectible_sprites(self, cell_size: int):
+        """Create pixel art collectible sprites"""
+        size = int(cell_size * self.config.collectible_size_ratio)
+        pixel_size = max(1, size // 20)  # Smaller pixels for more detail
+        
+        # Coin sprite
+        self._collectible_sprites['coin'] = self._create_pixel_coin(size, pixel_size)
+        
+        # Gem sprite
+        self._collectible_sprites['gem'] = self._create_pixel_gem(size, pixel_size)
+        
+        # Star sprite
+        self._collectible_sprites['star'] = self._create_pixel_star(size, pixel_size)
+    
+    def _create_pixel_coin(self, size: int, pixel_size: int) -> pygame.Surface:
+        """Create a chunky pixel art coin matching Viking style"""
+        sprite = pygame.Surface((size, size), pygame.SRCALPHA)
+        
+        # Use larger pixels for chunky look
+        p = max(2, size // 8)
+        
+        color = self.config.coin_color
+        highlight = tuple(min(255, c + 50) for c in color)
+        shadow = tuple(max(0, c - 50) for c in color)
+        dark = tuple(max(0, c - 30) for c in color)
+        
+        center = size // 2
+        
+        # Draw chunky circular coin (simplified octagon-like shape)
+        # Row by row for pixel-perfect look
+        coin_pattern = [
+            (2, 4),   # top row: start at 2, width 4
+            (1, 6),   # second row
+            (0, 8),   # full width rows
+            (0, 8),
+            (0, 8),
+            (0, 8),
+            (1, 6),   # narrowing
+            (2, 4),   # bottom row
+        ]
+        
+        start_y = center - len(coin_pattern) * p // 2
+        
+        for row_idx, (indent, width) in enumerate(coin_pattern):
+            y = start_y + row_idx * p
+            x = center - width * p // 2
+            
+            for col in range(width):
+                px = x + col * p
+                
+                # Determine color based on position for 3D effect
+                if row_idx < 2 or col < 2:
+                    c = highlight
+                elif row_idx > 5 or col > width - 3:
+                    c = shadow
+                else:
+                    c = color
+                
+                pygame.draw.rect(sprite, c, (px, y, p, p))
+        
+        # Inner circle/detail
+        inner_size = p * 2
+        pygame.draw.rect(sprite, dark, (center - inner_size // 2, center - inner_size // 2, inner_size, inner_size))
+        # Shine
+        pygame.draw.rect(sprite, highlight, (center - p * 2, center - p * 2, p, p))
+        
+        return sprite
+    
+    def _create_pixel_gem(self, size: int, pixel_size: int) -> pygame.Surface:
+        """Create a chunky pixel art gem matching Viking style"""
+        sprite = pygame.Surface((size, size), pygame.SRCALPHA)
+        
+        # Use larger pixels for chunky look
+        p = max(2, size // 8)
+        
+        color = self.config.gem_color
+        highlight = tuple(min(255, c + 60) for c in color)
+        shadow = tuple(max(0, c - 50) for c in color)
+        
+        center = size // 2
+        
+        # Diamond shape - row by row
+        gem_pattern = [
+            1,  # top point
+            2,
+            3,
+            4,  # widest
+            4,
+            3,
+            2,
+            1,  # bottom point
+        ]
+        
+        start_y = center - len(gem_pattern) * p // 2
+        
+        for row_idx, width in enumerate(gem_pattern):
+            y = start_y + row_idx * p
+            x = center - width * p // 2
+            
+            for col in range(width):
+                px = x + col * p
+                
+                # Top half lighter, bottom half darker
+                if row_idx < 4:
+                    c = highlight if col < width // 2 else color
+                else:
+                    c = color if col < width // 2 else shadow
+                
+                pygame.draw.rect(sprite, c, (px, y, p, p))
+        
+        # Shine highlight
+        pygame.draw.rect(sprite, (255, 255, 255) if highlight[0] > 200 else highlight, 
+                        (center - p, start_y + p, p, p))
+        
+        return sprite
+    
+    def _create_pixel_star(self, size: int, pixel_size: int) -> pygame.Surface:
+        """Create a chunky pixel art star matching Viking style"""
+        sprite = pygame.Surface((size, size), pygame.SRCALPHA)
+        
+        # Use larger pixels for chunky look
+        p = max(2, size // 8)
+        
+        color = self.config.star_color
+        highlight = tuple(min(255, c + 40) for c in color)
+        shadow = tuple(max(0, c - 40) for c in color)
+        
+        center = size // 2
+        
+        # 4-pointed star using simple cross pattern
+        arm_length = p * 3
+        arm_width = p * 2
+        
+        # Vertical arm
+        pygame.draw.rect(sprite, color, 
+                        (center - arm_width // 2, center - arm_length, arm_width, arm_length * 2))
+        # Horizontal arm
+        pygame.draw.rect(sprite, color,
+                        (center - arm_length, center - arm_width // 2, arm_length * 2, arm_width))
+        
+        # Center bright spot
+        pygame.draw.rect(sprite, highlight,
+                        (center - p, center - p, p * 2, p * 2))
+        
+        # Top highlight
+        pygame.draw.rect(sprite, highlight,
+                        (center - arm_width // 2, center - arm_length, arm_width, p))
+        # Left highlight
+        pygame.draw.rect(sprite, highlight,
+                        (center - arm_length, center - arm_width // 2, p, arm_width))
+        
+        # Bottom shadow
+        pygame.draw.rect(sprite, shadow,
+                        (center - arm_width // 2, center + arm_length - p, arm_width, p))
+        # Right shadow  
+        pygame.draw.rect(sprite, shadow,
+                        (center + arm_length - p, center - arm_width // 2, p, arm_width))
+        
+        return sprite
         
     def grid_to_screen(self, grid_x: float, grid_y: float) -> Tuple[int, int]:
         """Convert grid coordinates to screen coordinates"""
@@ -206,7 +757,7 @@ class GameRenderer:
         screen.blit(self._maze_surface, (self._offset_x, self._offset_y))
         
     def _render_maze_to_cache(self, maze: Maze):
-        """Render maze to cached surface, leaving hole transparent"""
+        """Render maze to cached surface using pixel art textures, leaving hole transparent"""
         cell_size = self.config.cell_size
         
         # Clear with transparency
@@ -214,30 +765,34 @@ class GameRenderer:
         
         for y in range(maze.height):
             for x in range(maze.width):
-                # Skip cells in the hole area
+                # Skip cells in the hole area (arrow panel stays unchanged)
                 if self.is_in_hole(x, y):
                     continue
                     
                 cell = maze.get_cell(x, y)
                 
-                rect = pygame.Rect(
-                    x * cell_size,
-                    y * cell_size,
-                    cell_size,
-                    cell_size
-                )
+                pos = (x * cell_size, y * cell_size)
                 
+                # Determine which texture variant to use for alternating pattern
+                # Cells where (x + y) is even use variant A (light tile in top-left)
+                # Cells where (x + y) is odd use variant B (dark tile in top-left)
+                use_variant_a = (x + y) % 2 == 0
+                
+                # Use pixel art textures
                 if cell == CellType.WALL:
-                    pygame.draw.rect(self._maze_surface, self.config.wall_color, rect)
+                    self._maze_surface.blit(self._wall_texture, pos)
                 elif cell == CellType.START:
-                    pygame.draw.rect(self._maze_surface, self.config.start_color, rect)
+                    texture = self._start_texture_a if use_variant_a else self._start_texture_b
+                    self._maze_surface.blit(texture, pos)
                 elif cell == CellType.GOAL:
-                    pygame.draw.rect(self._maze_surface, self.config.goal_color, rect)
+                    texture = self._goal_texture_a if use_variant_a else self._goal_texture_b
+                    self._maze_surface.blit(texture, pos)
                 else:  # PATH
-                    pygame.draw.rect(self._maze_surface, self.config.path_color, rect)
+                    texture = self._path_texture_a if use_variant_a else self._path_texture_b
+                    self._maze_surface.blit(texture, pos)
                     
     def draw_player(self, screen: pygame.Surface, player: Player):
-        """Draw the player (skip if in hole area)"""
+        """Draw the player using pixel art sprite (skip if in hole area)"""
         cell_size = self.config.cell_size
         size = int(cell_size * self.config.player_size_ratio)
         
@@ -250,29 +805,27 @@ class GameRenderer:
             
         screen_x, screen_y = self.grid_to_screen(grid_x, grid_y)
         
-        # Draw player body (circle)
-        pygame.draw.circle(
-            screen,
-            self.config.player_color,
-            (screen_x, screen_y),
-            size // 2
-        )
-        
-        # Draw outline
-        pygame.draw.circle(
-            screen,
-            self.config.player_outline,
-            (screen_x, screen_y),
-            size // 2,
-            2
-        )
-        
-        # Draw direction indicator
+        # Get sprite based on direction
+        from config import Direction
         direction = player.current_direction
-        if direction:
-            self._draw_direction_indicator(
-                screen, screen_x, screen_y, direction, size // 2
-            )
+        
+        if direction == Direction.UP:
+            sprite_key = 'up'
+        elif direction == Direction.DOWN:
+            sprite_key = 'down'
+        elif direction == Direction.LEFT:
+            sprite_key = 'left'
+        elif direction == Direction.RIGHT:
+            sprite_key = 'right'
+        else:
+            sprite_key = 'idle'
+        
+        sprite = self._player_sprites.get(sprite_key, self._player_sprites.get('idle'))
+        
+        if sprite:
+            # Center the sprite on the position
+            sprite_rect = sprite.get_rect(center=(screen_x, screen_y))
+            screen.blit(sprite, sprite_rect)
             
     def _draw_direction_indicator(
         self, 
@@ -308,101 +861,65 @@ class GameRenderer:
         
     def draw_collectibles(self, screen: pygame.Surface, manager: CollectibleManager):
         """Draw all collectibles (skip those in hole)"""
-        current_time = time.time()
-        
         for item in manager.active_collectibles:
             # Skip if in hole
             if self.is_in_hole(item.x, item.y):
                 continue
-            self._draw_collectible(screen, item, manager.config, current_time)
+            self._draw_collectible(screen, item)
             
     def _draw_collectible(
         self, 
         screen: pygame.Surface, 
-        item: Collectible,
-        config,
-        current_time: float
+        item: Collectible
     ):
-        """Draw a single collectible"""
-        cell_size = self.config.cell_size
-        size = int(cell_size * self.config.collectible_size_ratio)
-        
-        # Get position with animation offset
-        offset = item.get_animation_offset(current_time, config)
+        """Draw a single collectible using pixel art sprites (static, no animation)"""
+        # Get position (no animation offset - static items)
         screen_x, screen_y = self.grid_to_screen(item.x, item.y)
-        screen_y += int(offset * cell_size)
         
-        # Draw based on type
+        # Get the appropriate sprite
         if item.type == CollectibleType.COIN:
-            self._draw_coin(screen, screen_x, screen_y, size)
+            sprite = self._collectible_sprites.get('coin')
         elif item.type == CollectibleType.GEM:
-            self._draw_gem(screen, screen_x, screen_y, size, current_time, config)
+            sprite = self._collectible_sprites.get('gem')
         elif item.type == CollectibleType.STAR:
-            self._draw_star(screen, screen_x, screen_y, size, current_time, config)
+            sprite = self._collectible_sprites.get('star')
         else:
-            # Default: simple circle
-            pygame.draw.circle(screen, (200, 200, 200), (screen_x, screen_y), size // 2)
+            sprite = self._collectible_sprites.get('coin')  # Default
+        
+        if sprite:
+            # Center the sprite on the position
+            sprite_rect = sprite.get_rect(center=(screen_x, screen_y))
+            screen.blit(sprite, sprite_rect)
             
     def _draw_coin(self, screen: pygame.Surface, cx: int, cy: int, size: int):
-        """Draw a coin (circle with inner circle)"""
-        color = self.config.coin_color
-        
-        # Outer circle
-        pygame.draw.circle(screen, color, (cx, cy), size // 2)
-        
-        # Inner circle (darker)
-        inner_color = tuple(max(0, c - 50) for c in color)
-        pygame.draw.circle(screen, inner_color, (cx, cy), size // 3)
+        """Draw a coin using pixel art sprite"""
+        sprite = self._collectible_sprites.get('coin')
+        if sprite:
+            sprite_rect = sprite.get_rect(center=(cx, cy))
+            screen.blit(sprite, sprite_rect)
         
     def _draw_gem(
         self, screen: pygame.Surface, 
         cx: int, cy: int, size: int,
         current_time: float, config
     ):
-        """Draw a gem (diamond shape)"""
-        color = self.config.gem_color
-        
-        # Diamond points
-        half = size // 2
-        points = [
-            (cx, cy - half),      # Top
-            (cx + half, cy),      # Right
-            (cx, cy + half),      # Bottom
-            (cx - half, cy),      # Left
-        ]
-        
-        pygame.draw.polygon(screen, color, points)
-        
-        # Outline
-        outline_color = tuple(min(255, c + 50) for c in color)
-        pygame.draw.polygon(screen, outline_color, points, 2)
+        """Draw a gem using pixel art sprite"""
+        sprite = self._collectible_sprites.get('gem')
+        if sprite:
+            sprite_rect = sprite.get_rect(center=(cx, cy))
+            screen.blit(sprite, sprite_rect)
         
     def _draw_star(
         self, screen: pygame.Surface, 
         cx: int, cy: int, size: int,
         current_time: float, config
     ):
-        """Draw a star (5-pointed)"""
-        color = self.config.star_color
-        
-        # Rotation based on time
-        rotation = (current_time * config.rotation_speed) % 360
-        rotation = math.radians(rotation)
-        
-        # Generate star points
-        points = []
-        outer_radius = size // 2
-        inner_radius = size // 4
-        
-        for i in range(10):
-            angle = rotation + (i * math.pi / 5) - (math.pi / 2)
-            radius = outer_radius if i % 2 == 0 else inner_radius
-            x = cx + int(math.cos(angle) * radius)
-            y = cy + int(math.sin(angle) * radius)
-            points.append((x, y))
+        """Draw a star using pixel art sprite"""
+        sprite = self._collectible_sprites.get('star')
+        if sprite:
+            sprite_rect = sprite.get_rect(center=(cx, cy))
+            screen.blit(sprite, sprite_rect)
             
-        pygame.draw.polygon(screen, color, points)
-        
     def draw_ui(
         self, 
         screen: pygame.Surface, 
