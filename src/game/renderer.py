@@ -345,9 +345,8 @@ class GameRenderer:
         highlight = tuple(min(255, c + 35) for c in base_color)
         groove = tuple(max(0, c - 35) for c in base_color)
         
-        # Target ~32px tiles
-        target_tile_size = 32
-        tiles_per_side = max(2, round(size / target_tile_size))
+        # 3x3 tiles per cell (larger tiles)
+        tiles_per_side = 3
         tile_size = size // tiles_per_side
         
         # Pixels per tile
@@ -778,9 +777,10 @@ class GameRenderer:
                 # Cells where (x + y) is odd use variant B (dark tile in top-left)
                 use_variant_a = (x + y) % 2 == 0
                 
-                # Use pixel art textures
+                # Use pixel art textures - skip walls (they show as background)
                 if cell == CellType.WALL:
-                    self._maze_surface.blit(self._wall_texture, pos)
+                    # Don't render walls - game field bounded by screen only
+                    pass
                 elif cell == CellType.START:
                     texture = self._start_texture_a if use_variant_a else self._start_texture_b
                     self._maze_surface.blit(texture, pos)

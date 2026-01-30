@@ -190,60 +190,20 @@ class Maze:
     
     def _generate_corridors(self):
         """
-        Generate simple corridors around the forbidden zone.
+        Generate open playing field.
         
-        Creates a continuous path system that:
-        - Forms paths around the arrow panel (rectangular or plus-shaped)
-        - Uses corner areas when available (plus shape)
-        - Ensures full connectivity from any point to any other
+        Creates a fully open play area where:
+        - All cells are walkable paths (except forbidden zone)
+        - No border walls - play field extends to screen edges
+        - Player can move freely anywhere on the field
         """
-        # Start by making everything a path (except borders and forbidden)
-        for y in range(1, self.height - 1):
-            for x in range(1, self.width - 1):
+        # Make everything a path (including borders, except forbidden zone)
+        for y in range(self.height):
+            for x in range(self.width):
                 if not self.is_forbidden(x, y):
                     self._grid[y][x] = CellType.PATH
         
-        # Add some strategic walls to make it more interesting
-        # But be careful not to block connectivity
-        
-        # Only add internal walls if we have enough space
-        # For plus-shaped zones, the corners are already open
-        if self._forbidden_plus:
-            # Plus-shaped: add some walls but keep corners fully open
-            vx, vy, vw, vh = self._forbidden_plus['vertical']
-            hx, hy, hw, hh = self._forbidden_plus['horizontal']
-            
-            # Add walls in non-corner areas only
-            # Left side walls (between left edge and vertical strip, outside horizontal strip)
-            for y in range(2, self.height - 2):
-                if not (hy <= y < hy + hh):  # Not in horizontal strip row
-                    if 2 < vx - 2:  # If there's room for walls
-                        x = 3
-                        if not self.is_forbidden(x, y) and y % 3 != 0:
-                            self._grid[y][x] = CellType.WALL
-            
-            # Right side walls
-            for y in range(2, self.height - 2):
-                if not (hy <= y < hy + hh):  # Not in horizontal strip row
-                    right_x = self.width - 4
-                    if vx + vw + 2 < right_x:  # If there's room
-                        if not self.is_forbidden(right_x, y) and y % 3 != 0:
-                            self._grid[y][right_x] = CellType.WALL
-        
-        elif self._forbidden_rect:
-            # Rectangular: original wall placement
-            fx, fy, fw, fh = self._forbidden_rect
-            
-            if fx > 4:
-                for y in range(3, self.height - 3):
-                    if y % 3 != 0:
-                        self._grid[y][3] = CellType.WALL
-            
-            if self.width - (fx + fw) > 4:
-                right_wall_x = self.width - 4
-                for y in range(3, self.height - 3):
-                    if y % 3 != 0:
-                        self._grid[y][right_wall_x] = CellType.WALL
+        # No internal walls - completely open field
     
     def _place_start_and_goal(self):
         """Place start and goal positions on valid path cells"""

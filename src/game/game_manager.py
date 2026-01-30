@@ -66,7 +66,7 @@ class GameManagerConfig:
     cell_size: int = 0
     
     # Generation mode
-    use_corridors: bool = False  # If True, generate simple corridors instead of maze
+    use_corridors: bool = True  # Open playing field with no maze walls
     
     # Level completion
     require_all_collectibles: bool = True
