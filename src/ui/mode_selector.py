@@ -30,12 +30,12 @@ MODE_CONFIGS = {
     AppMode.DATA_COLLECTION: ModeConfig(
         name="Data Collection",
         description="Collect EEG training data for BCI calibration",
-        color=(180, 180, 180),  # Light gray
+        color=(70, 70, 70),  # Dull gray
     ),
     AppMode.GAME: ModeConfig(
         name="Game Mode", 
         description="Play the maze game using BCI control",
-        color=(140, 140, 140),  # Medium gray
+        color=(60, 60, 60),  # Dull gray
     ),
 }
 
@@ -61,15 +61,15 @@ class ModeSelector:
         self.desc_font = pygame.font.Font(None, 28)
         self.hint_font = pygame.font.Font(None, 24)
         
-        # Colors (grayscale)
-        self.bg_color = (20, 20, 20)
-        self.title_color = (220, 220, 220)
-        self.subtitle_color = (140, 140, 140)
-        self.button_color = (50, 50, 50)
-        self.button_hover_color = (80, 80, 80)
-        self.button_text_color = (200, 200, 200)
-        self.desc_color = (120, 120, 120)
-        self.hint_color = (80, 80, 80)
+        # Colors (much duller grayscale to make arrows stand out)
+        self.bg_color = (10, 10, 10)
+        self.title_color = (90, 90, 90)
+        self.subtitle_color = (60, 60, 60)
+        self.button_color = (25, 25, 25)
+        self.button_hover_color = (40, 40, 40)
+        self.button_text_color = (80, 80, 80)
+        self.desc_color = (55, 55, 55)
+        self.hint_color = (40, 40, 40)
         
         # Button dimensions
         self.button_width = 400
@@ -155,7 +155,7 @@ class ModeSelector:
             pygame.draw.rect(screen, bg_color, rect, border_radius=10)
             
             # Button border
-            border_color = (150, 150, 150) if is_hovered else (100, 100, 100)
+            border_color = (60, 60, 60) if is_hovered else (45, 45, 45)
             pygame.draw.rect(screen, border_color, rect, 2, border_radius=10)
             
             # Mode indicator bar on left
@@ -274,11 +274,11 @@ if __name__ == "__main__":
             
             # Show hint
             font = pygame.font.Font(None, 36)
-            text = font.render(f"Running in {MODE_CONFIGS[selected_mode].name}", True, (150, 150, 150))
+            text = font.render(f"Running in {MODE_CONFIGS[selected_mode].name}", True, (60, 60, 60))
             rect = text.get_rect(center=(screen_width // 2, screen_height // 2))
             screen.blit(text, rect)
             
-            hint = pygame.font.Font(None, 24).render("Press ESC to go back", True, (80, 80, 80))
+            hint = pygame.font.Font(None, 24).render("Press ESC to go back", True, (40, 40, 40))
             hint_rect = hint.get_rect(center=(screen_width // 2, screen_height // 2 + 40))
             screen.blit(hint, hint_rect)
         else:

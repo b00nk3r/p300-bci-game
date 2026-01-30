@@ -452,26 +452,26 @@ class Application:
             self.config.display.width,
             bar_height
         )
-        pygame.draw.rect(self.screen, (30, 30, 30), bar_rect)
+        pygame.draw.rect(self.screen, (15, 15, 15), bar_rect)
         
         # Status text
         state = self.arrow_manager.state
         if state == SelectionState.IDLE:
             status = "Press SPACE to start BCI selection"
-            color = (100, 100, 100)
+            color = (50, 50, 50)
         elif state == SelectionState.FLASHING:
             progress = self.arrow_manager.progress * 100
             status = f"Flashing... {progress:.0f}%"
-            color = (100, 200, 100)
+            color = (45, 70, 45)
         elif state == SelectionState.PROCESSING:
             status = "Processing... (Press 1-4 to simulate)"
-            color = (200, 200, 100)
+            color = (70, 70, 45)
         elif state == SelectionState.FEEDBACK:
             status = f"Selected: {self.last_selection.direction.value if self.last_selection else '?'}"
-            color = (100, 150, 255)
+            color = (45, 60, 80)
         else:
             status = str(state.name)
-            color = (100, 100, 100)
+            color = (50, 50, 50)
             
         text = self.font_medium.render(status, True, color)
         text_rect = text.get_rect(
@@ -519,7 +519,7 @@ class Application:
         y = padding * 2
         for line in lines:
             if line:
-                text = self.font_small.render(line, True, (150, 150, 150))
+                text = self.font_small.render(line, True, (60, 60, 60))
                 self.screen.blit(text, 
                     (self.config.display.width - width, y))
             y += line_height

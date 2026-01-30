@@ -481,7 +481,7 @@ def demo():
         
         y = 10
         for line in status_lines:
-            text = font.render(line, True, (100, 100, 100))
+            text = font.render(line, True, (50, 50, 50))
             screen.blit(text, (10, y))
             y += 30
             
