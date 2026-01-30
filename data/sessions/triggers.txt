@@ -908,3 +908,11 @@
 38905.393, 2, trial_end
 # Session ended
 
+# Session started at 2026-01-30 12:57:18
+# timestamp_ms, trigger_code, label
+# Session ended
+
+# Session started at 2026-01-30 13:05:16
+# timestamp_ms, trigger_code, label
+# Session ended
+
