@@ -578,13 +578,13 @@ def demo():
         manager.update(delta_ms)
         
         # Draw
-        screen.fill((20, 20, 25))
+        screen.fill((10, 10, 12))
         manager.draw(screen)
         
         # Draw controls hint at bottom
         hint = font.render(
             "Arrow keys: Move | R: Restart | N: Next Level | ESC: Quit",
-            True, (80, 80, 80)
+            True, (40, 40, 40)
         )
         screen.blit(hint, (10, screen_height - 25))
         

@@ -62,7 +62,7 @@ class DisplayConfig:
     fullscreen: bool = False
     fps: int = 60
     vsync: bool = True
-    background_color: Tuple[int, int, int] = (20, 20, 20)
+    background_color: Tuple[int, int, int] = (10, 10, 10)
 
 
 @dataclass  
@@ -188,10 +188,10 @@ class LayoutConfig:
 @dataclass
 class GameConfig:
     """Maze game settings"""
-    # Colors (grayscale to not interfere with arrows)
-    wall_color: Tuple[int, int, int] = (100, 100, 100)
-    path_color: Tuple[int, int, int] = (60, 60, 60)
-    player_color: Tuple[int, int, int] = (150, 150, 150)
+    # Colors (much duller grayscale to make arrows stand out)
+    wall_color: Tuple[int, int, int] = (40, 40, 40)
+    path_color: Tuple[int, int, int] = (25, 25, 25)
+    player_color: Tuple[int, int, int] = (70, 70, 70)
     
     # Maze
     cell_size: int = 40

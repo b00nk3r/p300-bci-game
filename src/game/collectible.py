@@ -41,11 +41,11 @@ class CollectibleConfig:
     bob_speed: float = 2.0        # Bobbing cycles per second
     rotation_speed: float = 90.0  # Degrees per second (for gems/stars)
     
-    # Colors (simple shapes)
-    coin_color: Tuple[int, int, int] = (255, 215, 0)      # Gold
-    gem_color: Tuple[int, int, int] = (0, 200, 255)       # Cyan
-    star_color: Tuple[int, int, int] = (255, 255, 100)    # Yellow
-    powerup_color: Tuple[int, int, int] = (255, 100, 255) # Magenta
+    # Colors (dull grayscale to make arrows stand out)
+    coin_color: Tuple[int, int, int] = (75, 75, 75)      # Dull gray
+    gem_color: Tuple[int, int, int] = (60, 60, 60)       # Dull gray
+    star_color: Tuple[int, int, int] = (80, 80, 80)      # Dull gray
+    powerup_color: Tuple[int, int, int] = (70, 70, 70)   # Dull gray
 
 
 @dataclass

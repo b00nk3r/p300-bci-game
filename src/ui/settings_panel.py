@@ -111,14 +111,14 @@ class Slider:
         self.dragging = False
         self.hovered = False
         
-        # Colors
-        self.track_color = (60, 60, 60)
-        self.track_fill_color = (80, 120, 180)
-        self.handle_color = (180, 180, 180)
-        self.handle_hover_color = (220, 220, 220)
-        self.handle_drag_color = (100, 150, 220)
-        self.label_color = (200, 200, 200)
-        self.value_color = (150, 200, 255)
+        # Colors (duller to make arrows stand out)
+        self.track_color = (30, 30, 30)
+        self.track_fill_color = (40, 50, 70)
+        self.handle_color = (70, 70, 70)
+        self.handle_hover_color = (85, 85, 85)
+        self.handle_drag_color = (50, 60, 80)
+        self.label_color = (80, 80, 80)
+        self.value_color = (60, 75, 95)
         
     def _update_handle_position(self):
         """Update handle position based on current value"""
@@ -199,7 +199,7 @@ class Slider:
             color = self.handle_color
             
         pygame.draw.rect(screen, color, self.handle_rect, border_radius=4)
-        pygame.draw.rect(screen, (100, 100, 100), self.handle_rect, 1, border_radius=4)
+        pygame.draw.rect(screen, (45, 45, 45), self.handle_rect, 1, border_radius=4)
         
         # Draw value
         value_text = self.format_str.format(self.value)
@@ -249,13 +249,13 @@ class Dropdown:
         self.is_open = False
         self.hovered_index = -1
         
-        # Colors
-        self.bg_color = (50, 50, 50)
-        self.hover_color = (70, 90, 120)
-        self.border_color = (100, 100, 100)
-        self.text_color = (200, 200, 200)
-        self.label_color = (200, 200, 200)
-        self.arrow_color = (150, 150, 150)
+        # Colors (duller to make arrows stand out)
+        self.bg_color = (25, 25, 25)
+        self.hover_color = (35, 40, 50)
+        self.border_color = (45, 45, 45)
+        self.text_color = (80, 80, 80)
+        self.label_color = (80, 80, 80)
+        self.arrow_color = (60, 60, 60)
         
     def handle_event(self, event: pygame.event.Event) -> bool:
         """
@@ -383,9 +383,9 @@ class Button:
         rect: pygame.Rect,
         text: str,
         font: pygame.font.Font = None,
-        color: Tuple[int, int, int] = (70, 70, 70),
-        hover_color: Tuple[int, int, int] = (90, 110, 140),
-        text_color: Tuple[int, int, int] = (220, 220, 220),
+        color: Tuple[int, int, int] = (35, 35, 35),
+        hover_color: Tuple[int, int, int] = (45, 50, 60),
+        text_color: Tuple[int, int, int] = (85, 85, 85),
     ):
         self.rect = rect
         self.text = text
@@ -416,7 +416,7 @@ class Button:
         color = self.hover_color if self.hovered else self.color
         
         pygame.draw.rect(screen, color, self.rect, border_radius=5)
-        pygame.draw.rect(screen, (120, 120, 120), self.rect, 2, border_radius=5)
+        pygame.draw.rect(screen, (55, 55, 55), self.rect, 2, border_radius=5)
         
         text_surface = self.font.render(self.text, True, self.text_color)
         text_rect = text_surface.get_rect(center=self.rect.center)
@@ -479,11 +479,11 @@ class SettingsPanel:
         self.label_font = pygame.font.Font(None, 24)
         self.info_font = pygame.font.Font(None, 22)
         
-        # Colors
-        self.bg_color = (35, 35, 40)
-        self.border_color = (80, 80, 90)
-        self.title_color = (220, 220, 230)
-        self.info_color = (150, 180, 220)
+        # Colors (duller to make arrows stand out)
+        self.bg_color = (20, 20, 22)
+        self.border_color = (40, 40, 45)
+        self.title_color = (90, 90, 95)
+        self.info_color = (60, 70, 85)
         
         # Create UI elements
         self._create_ui_elements()
@@ -563,8 +563,8 @@ class SettingsPanel:
             ),
             text="Apply",
             font=self.label_font,
-            color=(50, 100, 50),
-            hover_color=(70, 140, 70),
+            color=(25, 45, 25),
+            hover_color=(35, 60, 35),
         )
         
         self.cancel_button = Button(
@@ -576,8 +576,8 @@ class SettingsPanel:
             ),
             text="Cancel",
             font=self.label_font,
-            color=(100, 50, 50),
-            hover_color=(140, 70, 70),
+            color=(45, 25, 25),
+            hover_color=(60, 35, 35),
         )
         
     def set_values(self, values: SettingsValues):
@@ -744,7 +744,7 @@ class SettingsPanel:
         duration_s = duration_ms / 1000
         
         duration_text = f"Est. selection time: {duration_s:.1f}s"
-        duration_surface = self.info_font.render(duration_text, True, (120, 150, 120))
+        duration_surface = self.info_font.render(duration_text, True, (50, 65, 50))
         duration_rect = duration_surface.get_rect(
             centerx=self.panel_rect.centerx,
             top=info_y + 22
@@ -819,11 +819,11 @@ def demo():
                 pass
                 
         # Draw
-        screen.fill((30, 30, 35))
+        screen.fill((10, 10, 12))
         
         # Draw background info
         if not panel.is_visible:
-            text = font.render("Press S to open settings", True, (100, 100, 100))
+            text = font.render("Press S to open settings", True, (50, 50, 50))
             rect = text.get_rect(center=(screen_width // 2, screen_height // 2))
             screen.blit(text, rect)
             

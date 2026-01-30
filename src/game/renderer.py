@@ -39,26 +39,26 @@ class RenderConfig:
     # Cell size
     cell_size: int = 32
     
-    # Maze colors (grayscale to not interfere with arrows)
-    wall_color: Tuple[int, int, int] = (50, 50, 50)
-    path_color: Tuple[int, int, int] = (30, 30, 30)
-    start_color: Tuple[int, int, int] = (45, 45, 45)
-    goal_color: Tuple[int, int, int] = (55, 55, 55)
+    # Maze colors (much duller grayscale to make arrows stand out)
+    wall_color: Tuple[int, int, int] = (30, 30, 30)
+    path_color: Tuple[int, int, int] = (18, 18, 18)
+    start_color: Tuple[int, int, int] = (25, 25, 25)
+    goal_color: Tuple[int, int, int] = (32, 32, 32)
     
-    # Player colors (grayscale)
-    player_color: Tuple[int, int, int] = (160, 160, 160)
-    player_outline: Tuple[int, int, int] = (120, 120, 120)
-    player_direction_color: Tuple[int, int, int] = (200, 200, 200)
+    # Player colors (much duller grayscale)
+    player_color: Tuple[int, int, int] = (70, 70, 70)
+    player_outline: Tuple[int, int, int] = (50, 50, 50)
+    player_direction_color: Tuple[int, int, int] = (80, 80, 80)
     
-    # Collectible colors (different gray shades for variety)
-    coin_color: Tuple[int, int, int] = (180, 180, 180)
-    gem_color: Tuple[int, int, int] = (140, 140, 140)
-    star_color: Tuple[int, int, int] = (200, 200, 200)
+    # Collectible colors (much duller gray shades)
+    coin_color: Tuple[int, int, int] = (75, 75, 75)
+    gem_color: Tuple[int, int, int] = (60, 60, 60)
+    star_color: Tuple[int, int, int] = (80, 80, 80)
     
-    # UI colors (grayscale)
-    ui_bg_color: Tuple[int, int, int] = (20, 20, 20)
-    ui_text_color: Tuple[int, int, int] = (180, 180, 180)
-    ui_highlight_color: Tuple[int, int, int] = (220, 220, 220)
+    # UI colors (much duller grayscale)
+    ui_bg_color: Tuple[int, int, int] = (15, 15, 15)
+    ui_text_color: Tuple[int, int, int] = (70, 70, 70)
+    ui_highlight_color: Tuple[int, int, int] = (90, 90, 90)
     
     # Sizes
     player_size_ratio: float = 1.0   # Player fills entire cell
