@@ -429,9 +429,7 @@ class Application:
         # Draw arrows (on top of game)
         self.arrow_manager.draw(self.screen)
         
-        # Draw UI overlays
-        self._draw_status()
-        
+        # Draw UI overlays (debug only now - scoreboard is part of game renderer)
         if self.show_debug:
             self._draw_debug()
             
