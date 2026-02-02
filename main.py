@@ -31,7 +31,9 @@ import pygame
 from config import Config, Direction
 from src.stimulus.arrow_manager import ArrowManager, SelectionState, SelectionResult
 from src.ui.settings_panel import SettingsPanel, SettingsValues
+from src.ui.mode_selector import AppMode, PlayMode, MODE_CONFIGS
 from src.game.game_manager import GameManager, GameManagerConfig, GameState
+from src.game.auto_play_controller import AutoPlayController, AutoPlayConfig
 
 
 class Application:
@@ -43,18 +45,26 @@ class Application:
     - Arrow stimulus system (via ArrowManager)
     - Game state (maze - TODO)
     - User input handling
+    - Mode selection (Normal vs Testing)
     """
     
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, start_mode: AppMode = None):
         self.config = config
         self.running = False
         self.clock = None
         self.screen = None
         
+        # Mode selection - default to normal game mode
+        self._start_mode = start_mode if start_mode is not None else AppMode.GAME
+        self._current_mode: AppMode = None
+        self._play_mode: PlayMode = None
+        self._mode_selected = False
+        
         # Components
         self.arrow_manager: ArrowManager = None
         self.settings_panel: SettingsPanel = None
         self.game_manager: GameManager = None
+        self.auto_play_controller: AutoPlayController = None
         
         # State
         self.show_debug = config.debug
@@ -87,6 +97,33 @@ class Application:
         self.font_medium = pygame.font.Font(None, 32)
         self.font_small = pygame.font.Font(None, 24)
         
+        # Initialize with the start mode (defaults to normal game mode)
+        self._select_mode(self._start_mode)
+        
+        # Print startup info
+        self._print_startup_info()
+        
+    def _select_mode(self, mode: AppMode):
+        """Handle mode selection and initialize appropriate components"""
+        self._current_mode = mode
+        self._mode_selected = True
+        
+        # Get play mode from config
+        mode_config = MODE_CONFIGS[mode]
+        self._play_mode = mode_config.play_mode
+        
+        print(f"\nMode: {mode_config.name}")
+        
+        # Initialize game components (for game modes)
+        if mode in (AppMode.GAME, AppMode.GAME_TESTING):
+            self._init_game_components()
+            
+            # Initialize auto-play controller for testing mode
+            if mode == AppMode.GAME_TESTING:
+                self._init_auto_play_controller()
+                
+    def _init_game_components(self):
+        """Initialize all game-related components"""
         # Initialize arrow manager
         self._init_arrow_manager()
         
@@ -96,8 +133,36 @@ class Application:
         # Initialize game manager
         self._init_game_manager()
         
-        # Print startup info
-        self._print_startup_info()
+    def _init_auto_play_controller(self):
+        """Initialize the auto-play controller for testing mode"""
+        auto_config = AutoPlayConfig(
+            delay_between_moves_ms=800.0,  # Wait 800ms between moves
+            prefer_valid_moves=True,
+            avoid_backtracking=True,
+            log_to_file=True,
+        )
+        
+        self.auto_play_controller = AutoPlayController(auto_config)
+        self.auto_play_controller.initialize(self.game_manager)
+        
+        # Set callbacks
+        self.auto_play_controller.set_callbacks(
+            on_direction_generated=self._on_auto_direction,
+            on_move_complete=self._on_auto_move_complete,
+        )
+        
+        # Start auto-play
+        self.auto_play_controller.start()
+        print("Auto-play controller started")
+        
+    def _on_auto_direction(self, direction: Direction, move_num: int):
+        """Called when auto-play generates a new direction"""
+        if self.show_debug:
+            print(f"  Auto-play generated: {direction.value} (move #{move_num})")
+            
+    def _on_auto_move_complete(self, move_num: int):
+        """Called when auto-play move completes"""
+        pass  # Could add additional logic here if needed
         
     def _init_arrow_manager(self):
         """Initialize the arrow stimulus system"""
@@ -226,6 +291,9 @@ class Application:
         print("  Arrows - Manual movement (testing)")
         print("  ESC    - Quit")
         print()
+        print("Testing mode (--mode testing):")
+        print("  SPACE  - Pause/Resume auto-play")
+        print()
         print("=" * 50)
         print()
         
@@ -269,13 +337,38 @@ class Application:
         if key == pygame.K_ESCAPE:
             self.running = False
             
-        # Toggle BCI selection
-        elif key == pygame.K_SPACE:
-            self._toggle_selection()
-            
         # Toggle debug
         elif key == pygame.K_d:
             self.show_debug = not self.show_debug
+            
+        # In testing mode, only allow limited controls
+        if self._play_mode == PlayMode.TESTING:
+            # Allow pause/resume of auto-play with SPACE
+            if key == pygame.K_SPACE:
+                self._toggle_auto_play()
+            # Allow level controls
+            elif key == pygame.K_r:
+                if self.game_manager:
+                    self.game_manager.restart_level()
+                    # Restart auto-play
+                    if self.auto_play_controller:
+                        self.auto_play_controller.stop()
+                        self.auto_play_controller.start()
+                    print("Level restarted")
+            elif key == pygame.K_n:
+                if self.game_manager:
+                    self.game_manager.next_level()
+                    # Restart auto-play for new level
+                    if self.auto_play_controller:
+                        self.auto_play_controller.stop()
+                        self.auto_play_controller.start()
+                    print(f"Advanced to level {self.game_manager.stats.level}")
+            return
+            
+        # Normal mode controls
+        # Toggle BCI selection
+        if key == pygame.K_SPACE:
+            self._toggle_selection()
             
         # Toggle settings panel
         elif key == pygame.K_s:
@@ -312,6 +405,18 @@ class Application:
             self._manual_move(Direction.LEFT)
         elif key == pygame.K_RIGHT:
             self._manual_move(Direction.RIGHT)
+            
+    def _toggle_auto_play(self):
+        """Toggle auto-play on/off"""
+        if not self.auto_play_controller:
+            return
+            
+        if self.auto_play_controller.is_active:
+            self.auto_play_controller.stop()
+            print("Auto-play paused")
+        else:
+            self.auto_play_controller.start()
+            print("Auto-play resumed")
             
     def _toggle_selection(self):
         """Start or stop BCI selection"""
@@ -411,11 +516,16 @@ class Application:
         delta_ms = self.clock.get_time()
         
         # Update arrow manager
-        self.arrow_manager.update()
+        if self.arrow_manager:
+            self.arrow_manager.update()
         
         # Update game manager
         if self.game_manager:
             self.game_manager.update(delta_ms)
+            
+        # Update auto-play controller (for testing mode)
+        if self.auto_play_controller:
+            self.auto_play_controller.update(delta_ms)
         
     def _draw(self):
         """Render frame"""
@@ -427,7 +537,8 @@ class Application:
             self.game_manager.draw(self.screen)
         
         # Draw arrows (on top of game)
-        self.arrow_manager.draw(self.screen)
+        if self.arrow_manager:
+            self.arrow_manager.draw(self.screen)
         
         # Draw UI overlays (debug only now - scoreboard is part of game renderer)
         if self.show_debug:
@@ -524,6 +635,10 @@ class Application:
             
     def _cleanup(self):
         """Clean up resources"""
+        # Stop auto-play controller
+        if self.auto_play_controller and self.auto_play_controller.is_active:
+            self.auto_play_controller.stop()
+            
         if self.arrow_manager:
             self.arrow_manager.shutdown()
         pygame.quit()
@@ -564,6 +679,13 @@ def parse_args():
         default=None,
         help="Number of sequences per selection (default: from config)"
     )
+    parser.add_argument(
+        "--mode",
+        type=str,
+        choices=["normal", "testing", "data"],
+        default=None,
+        help="Start directly in specified mode (normal=keyboard, testing=auto-play, data=data collection)"
+    )
     return parser.parse_args()
 
 
@@ -581,9 +703,19 @@ def main():
     if args.sequences:
         config.timing.num_sequences = args.sequences
     
+    # Determine start mode from command line
+    start_mode = None
+    if args.mode:
+        mode_map = {
+            "normal": AppMode.GAME,
+            "testing": AppMode.GAME_TESTING,
+            "data": AppMode.DATA_COLLECTION,
+        }
+        start_mode = mode_map.get(args.mode)
+    
     # Create and run application
     try:
-        app = Application(config)
+        app = Application(config, start_mode=start_mode)
         app.initialize()
         app.run()
     except KeyboardInterrupt:
