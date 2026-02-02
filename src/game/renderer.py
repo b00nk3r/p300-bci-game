@@ -142,6 +142,16 @@ class GameRenderer:
         self._offset_x = (screen_width - self._maze_width_px) // 2
         self._offset_y = (screen_height - self._maze_height_px) // 2
         
+        # Store maze reference for scoreboard zone
+        self._maze_width = maze.width
+        self._maze_height = maze.height
+        
+        # Scoreboard position: 2 cells in top-right corner
+        self._scoreboard_cells = [
+            (maze.width - 2, 0),  # Left cell of scoreboard
+            (maze.width - 1, 0),  # Right cell of scoreboard
+        ]
+        
         # The hole is now determined by the maze's forbidden zone
         # which can be either rectangular or plus-shaped
         self._hole_rect = arrow_panel_rect
@@ -172,6 +182,9 @@ class GameRenderer:
         
         # Create pixel art textures for this cell size
         self._create_pixel_textures(cell_size)
+        
+        # Create scoreboard texture
+        self._create_scoreboard_texture(cell_size)
         
         # Create maze surface cache
         self._maze_surface = pygame.Surface(
@@ -437,6 +450,357 @@ class GameRenderer:
     def _create_goal_texture(self, size: int, base_color: Tuple[int, int, int], start_light: bool = True) -> pygame.Surface:
         """Create a pixel art goal position texture (same as floor, no markings)"""
         return self._create_floor_texture(size, base_color, start_light=start_light)
+    
+    def _create_scoreboard_texture(self, cell_size: int):
+        """Load pixel art scoreboard image spanning 2 cells.
+        
+        The board is in the top-right corner, so we view it from the left.
+        Uses the pre-made scoreboard.png image.
+        """
+        width = cell_size * 2
+        height = cell_size
+        
+        pixel_size = max(2, cell_size // 40)  # Match floor tile pixel size
+        
+        # Try to load the scoreboard image
+        scoreboard_path = None
+        possible_paths = [
+            "assets/scoreboard.png",
+            "../assets/scoreboard.png",
+            "src/game/../../assets/scoreboard.png",
+        ]
+        
+        import os
+        for path in possible_paths:
+            if os.path.exists(path):
+                scoreboard_path = path
+                break
+        
+        # Also try relative to this file's location
+        if scoreboard_path is None:
+            import pathlib
+            this_dir = pathlib.Path(__file__).parent.parent.parent
+            asset_path = this_dir / "assets" / "scoreboard.png"
+            if asset_path.exists():
+                scoreboard_path = str(asset_path)
+        
+        if scoreboard_path and os.path.exists(scoreboard_path):
+            # Load the image
+            original = pygame.image.load(scoreboard_path).convert_alpha()
+            
+            # The image has a checkered pattern for transparency - convert it
+            # Make pixels that are light gray (the checkered background) transparent
+            orig_width, orig_height = original.get_size()
+            
+            # First pass: convert checkered to transparent and find content bounds
+            min_x, min_y = orig_width, orig_height
+            max_x, max_y = 0, 0
+            
+            for y in range(orig_height):
+                for x in range(orig_width):
+                    r, g, b, a = original.get_at((x, y))
+                    # Check if this is a light pixel (checkered background)
+                    if r > 180 and g > 180 and b > 180:
+                        original.set_at((x, y), (0, 0, 0, 0))
+                    else:
+                        # Track content bounds
+                        min_x = min(min_x, x)
+                        min_y = min(min_y, y)
+                        max_x = max(max_x, x)
+                        max_y = max(max_y, y)
+            
+            # Crop to content bounds with small padding
+            padding = 2
+            crop_x = max(0, min_x - padding)
+            crop_y = max(0, min_y - padding)
+            crop_w = min(orig_width - crop_x, max_x - min_x + padding * 2)
+            crop_h = min(orig_height - crop_y, max_y - min_y + padding * 2)
+            
+            # Create cropped surface
+            cropped = pygame.Surface((crop_w, crop_h), pygame.SRCALPHA)
+            cropped.blit(original, (0, 0), (crop_x, crop_y, crop_w, crop_h))
+            
+            # Scale cropped image to fill the space
+            scale = min(width / crop_w, height / crop_h)
+            new_width = int(crop_w * scale)
+            new_height = int(crop_h * scale)
+            
+            scaled = pygame.transform.smoothscale(cropped, (new_width, new_height))
+            
+            # Create final surface and position at bottom (legs should touch bottom)
+            self._scoreboard_surface = pygame.Surface((width, height), pygame.SRCALPHA)
+            self._scoreboard_surface.fill((0, 0, 0, 0))
+            
+            x_offset = (width - new_width) // 2
+            y_offset = height - new_height  # Align to bottom
+            self._scoreboard_surface.blit(scaled, (x_offset, y_offset))
+            
+            # Store board dimensions for text positioning
+            # Move text more to the right to avoid frame border
+            self._board_text_left = x_offset + int(new_width * 0.12)
+            self._board_text_top = y_offset + int(new_height * 0.18)
+            self._board_text_right = x_offset + int(new_width * 0.92)
+            self._board_text_bottom = y_offset + int(new_height * 0.75)
+            
+            # Use medium pixel size for scoreboard text (3/4 of normal size)
+            self._scoreboard_pixel_size = max(2, (pixel_size * 3) // 4)
+            
+            print(f"Loaded scoreboard from {scoreboard_path}, cropped to {crop_w}x{crop_h}, scaled to {new_width}x{new_height}")
+        else:
+            # Fallback: create a simple dark rectangle
+            self._scoreboard_surface = pygame.Surface((width, height), pygame.SRCALPHA)
+            self._scoreboard_surface.fill((20, 20, 20, 240))
+            pygame.draw.rect(self._scoreboard_surface, (50, 50, 50), (0, 0, width, height), 3)
+            
+            self._board_text_left = pixel_size * 4
+            self._board_text_top = pixel_size * 4
+            self._board_text_right = width - pixel_size * 4
+            
+            print("Scoreboard image not found, using fallback")
+        
+        # Create pixel art font for scoreboard
+        self._create_pixel_font(pixel_size)
+    
+    def _create_pixel_font(self, pixel_size: int):
+        """Create pixel art characters for scoreboard text"""
+        # Store pixel size for drawing
+        self._pixel_font_size = pixel_size
+        
+        # Chalk color (white/light gray)
+        chalk = (200, 200, 195)
+        
+        # Define 5x7 pixel font patterns (each char is list of strings)
+        self._pixel_chars = {
+            '0': [
+                " ### ",
+                "#   #",
+                "#   #",
+                "#   #",
+                "#   #",
+                "#   #",
+                " ### ",
+            ],
+            '1': [
+                "  #  ",
+                " ##  ",
+                "  #  ",
+                "  #  ",
+                "  #  ",
+                "  #  ",
+                " ### ",
+            ],
+            '2': [
+                " ### ",
+                "#   #",
+                "    #",
+                "  ## ",
+                " #   ",
+                "#    ",
+                "#####",
+            ],
+            '3': [
+                " ### ",
+                "#   #",
+                "    #",
+                "  ## ",
+                "    #",
+                "#   #",
+                " ### ",
+            ],
+            '4': [
+                "#   #",
+                "#   #",
+                "#   #",
+                "#####",
+                "    #",
+                "    #",
+                "    #",
+            ],
+            '5': [
+                "#####",
+                "#    ",
+                "#### ",
+                "    #",
+                "    #",
+                "#   #",
+                " ### ",
+            ],
+            '6': [
+                " ### ",
+                "#    ",
+                "#    ",
+                "#### ",
+                "#   #",
+                "#   #",
+                " ### ",
+            ],
+            '7': [
+                "#####",
+                "    #",
+                "   # ",
+                "  #  ",
+                "  #  ",
+                "  #  ",
+                "  #  ",
+            ],
+            '8': [
+                " ### ",
+                "#   #",
+                "#   #",
+                " ### ",
+                "#   #",
+                "#   #",
+                " ### ",
+            ],
+            '9': [
+                " ### ",
+                "#   #",
+                "#   #",
+                " ####",
+                "    #",
+                "    #",
+                " ### ",
+            ],
+            'S': [
+                " ### ",
+                "#   #",
+                "#    ",
+                " ### ",
+                "    #",
+                "#   #",
+                " ### ",
+            ],
+            'C': [
+                " ### ",
+                "#   #",
+                "#    ",
+                "#    ",
+                "#    ",
+                "#   #",
+                " ### ",
+            ],
+            'O': [
+                " ### ",
+                "#   #",
+                "#   #",
+                "#   #",
+                "#   #",
+                "#   #",
+                " ### ",
+            ],
+            'R': [
+                "#### ",
+                "#   #",
+                "#   #",
+                "#### ",
+                "#  # ",
+                "#   #",
+                "#   #",
+            ],
+            'E': [
+                "#####",
+                "#    ",
+                "#    ",
+                "#### ",
+                "#    ",
+                "#    ",
+                "#####",
+            ],
+            'L': [
+                "#    ",
+                "#    ",
+                "#    ",
+                "#    ",
+                "#    ",
+                "#    ",
+                "#####",
+            ],
+            'V': [
+                "#   #",
+                "#   #",
+                "#   #",
+                "#   #",
+                " # # ",
+                " # # ",
+                "  #  ",
+            ],
+            'I': [
+                " ### ",
+                "  #  ",
+                "  #  ",
+                "  #  ",
+                "  #  ",
+                "  #  ",
+                " ### ",
+            ],
+            'T': [
+                "#####",
+                "  #  ",
+                "  #  ",
+                "  #  ",
+                "  #  ",
+                "  #  ",
+                "  #  ",
+            ],
+            'M': [
+                "#   #",
+                "## ##",
+                "# # #",
+                "#   #",
+                "#   #",
+                "#   #",
+                "#   #",
+            ],
+            ':': [
+                "     ",
+                "  #  ",
+                "  #  ",
+                "     ",
+                "  #  ",
+                "  #  ",
+                "     ",
+            ],
+            '/': [
+                "    #",
+                "   # ",
+                "   # ",
+                "  #  ",
+                " #   ",
+                " #   ",
+                "#    ",
+            ],
+            ' ': [
+                "     ",
+                "     ",
+                "     ",
+                "     ",
+                "     ",
+                "     ",
+                "     ",
+            ],
+        }
+    
+    def _draw_pixel_text(self, surface: pygame.Surface, text: str, x: int, y: int, color: Tuple[int, int, int] = None):
+        """Draw text using pixel art font"""
+        if color is None:
+            color = (200, 200, 195)  # Chalk white
+        
+        pixel_size = self._pixel_font_size
+        char_width = 5 * pixel_size
+        char_height = 7 * pixel_size
+        spacing = pixel_size  # Space between characters
+        
+        cursor_x = x
+        for char in text.upper():
+            pattern = self._pixel_chars.get(char, self._pixel_chars.get(' '))
+            if pattern:
+                for row_idx, row in enumerate(pattern):
+                    for col_idx, pixel in enumerate(row):
+                        if pixel == '#':
+                            px = cursor_x + col_idx * pixel_size
+                            py = y + row_idx * pixel_size
+                            pygame.draw.rect(surface, color, (px, py, pixel_size, pixel_size))
+            cursor_x += char_width + spacing
     
     def _create_player_sprites(self, cell_size: int):
         """Load the Viking player sprite from image file"""
@@ -762,20 +1126,49 @@ class GameRenderer:
         # Clear with transparency
         self._maze_surface.fill((0, 0, 0, 0))
         
+        # Track if we've drawn the scoreboard (spans 2 cells)
+        scoreboard_drawn = False
+        
         for y in range(maze.height):
             for x in range(maze.width):
                 # Skip cells in the hole area (arrow panel stays unchanged)
                 if self.is_in_hole(x, y):
                     continue
-                    
-                cell = maze.get_cell(x, y)
+                
+                # Check if this is a scoreboard cell
+                is_scoreboard_cell = hasattr(self, '_scoreboard_cells') and (x, y) in self._scoreboard_cells
                 
                 pos = (x * cell_size, y * cell_size)
                 
                 # Determine which texture variant to use for alternating pattern
-                # Cells where (x + y) is even use variant A (light tile in top-left)
-                # Cells where (x + y) is odd use variant B (dark tile in top-left)
                 use_variant_a = (x + y) % 2 == 0
+                
+                # Handle scoreboard cells specially
+                if is_scoreboard_cell:
+                    left_cell = self._scoreboard_cells[0]
+                    if (x, y) == left_cell:
+                        # Draw floor tiles for both scoreboard cells first
+                        texture = self._path_texture_a if use_variant_a else self._path_texture_b
+                        self._maze_surface.blit(texture, pos)
+                        
+                        # Draw floor for right cell too
+                        right_pos = ((x + 1) * cell_size, y * cell_size)
+                        right_variant = ((x + 1) + y) % 2 == 0
+                        right_texture = self._path_texture_a if right_variant else self._path_texture_b
+                        self._maze_surface.blit(right_texture, right_pos)
+                        
+                        # Now draw scoreboard on top of both floor tiles
+                        if hasattr(self, '_scoreboard_surface'):
+                            self._maze_surface.blit(self._scoreboard_surface, pos)
+                            scoreboard_drawn = True
+                    # Skip the right cell entirely (already handled above)
+                    continue
+                    
+                cell = maze.get_cell(x, y)
+                
+                # Draw floor tile first
+                texture = self._path_texture_a if use_variant_a else self._path_texture_b
+                self._maze_surface.blit(texture, pos)
                 
                 # Use pixel art textures - skip walls (they show as background)
                 if cell == CellType.WALL:
@@ -787,9 +1180,7 @@ class GameRenderer:
                 elif cell == CellType.GOAL:
                     texture = self._goal_texture_a if use_variant_a else self._goal_texture_b
                     self._maze_surface.blit(texture, pos)
-                else:  # PATH
-                    texture = self._path_texture_a if use_variant_a else self._path_texture_b
-                    self._maze_surface.blit(texture, pos)
+                # PATH cells already drawn above
                     
     def draw_player(self, screen: pygame.Surface, player: Player):
         """Draw the player using pixel art sprite (skip if in hole area)"""
@@ -930,7 +1321,7 @@ class GameRenderer:
         rect: pygame.Rect = None
     ):
         """
-        Draw game UI overlay.
+        Draw game UI overlay - pixel art scoreboard in top-right corner.
         
         Args:
             screen: Surface to draw on
@@ -940,37 +1331,73 @@ class GameRenderer:
             level: Current level number
             rect: Optional rect to avoid (e.g., arrow panel)
         """
-        # Draw in top-left corner
-        x, y = 15, 15
+        cell_size = self.config.cell_size
         
-        # Background panel
-        panel_width = 180
-        panel_height = 80
-        panel_rect = pygame.Rect(x - 10, y - 10, panel_width, panel_height)
+        # Calculate scoreboard position (top-right, 2 cells wide)
+        # Get the position of the scoreboard cells
+        if hasattr(self, '_scoreboard_cells') and self._scoreboard_cells:
+            left_cell = self._scoreboard_cells[0]
+            # Convert grid coords to screen coords
+            board_x = self._offset_x + left_cell[0] * cell_size
+            board_y = self._offset_y + left_cell[1] * cell_size
+        else:
+            # Fallback position
+            board_x = self._offset_x + self._maze_width_px - cell_size * 2
+            board_y = self._offset_y
         
-        # Semi-transparent background
-        bg_surface = pygame.Surface((panel_width, panel_height), pygame.SRCALPHA)
-        bg_surface.fill((*self.config.ui_bg_color, 200))
-        screen.blit(bg_surface, panel_rect.topleft)
+        # Scoreboard is drawn as part of the maze cache, so we don't need to draw it here
+        # Just draw the text on top
         
-        # Border
-        pygame.draw.rect(screen, (60, 60, 60), panel_rect, 1, border_radius=5)
+        # Use smaller pixel size for scoreboard text
+        pixel_size = self._scoreboard_pixel_size if hasattr(self, '_scoreboard_pixel_size') else 2
         
-        # Score
-        score_text = self._font_medium.render(f"Score: {score}", True, self.config.ui_highlight_color)
-        screen.blit(score_text, (x, y))
+        # Text position relative to board
+        if hasattr(self, '_board_text_left'):
+            text_x = board_x + self._board_text_left
+            text_y = board_y + self._board_text_top
+        else:
+            # Fallback
+            text_x = board_x + 10
+            text_y = board_y + 10
         
-        # Items collected
-        items_text = self._font_small.render(
-            f"Items: {collected}/{total}", 
-            True, 
-            self.config.ui_text_color
-        )
-        screen.blit(items_text, (x, y + 28))
+        # Chalk color (grayscale)
+        chalk_color = (180, 180, 180)
         
-        # Level
-        level_text = self._font_small.render(f"Level: {level}", True, self.config.ui_text_color)
-        screen.blit(level_text, (x, y + 48))
+        # Line spacing based on pixel size (5x7 font + spacing)
+        line_height = 7 * pixel_size + pixel_size * 2
+        
+        # Draw score (top line) with label
+        self._draw_pixel_text_sized(screen, f"SCORE:{score}", text_x, text_y, chalk_color, pixel_size)
+        
+        # Draw items (middle line) with label
+        text_y += line_height
+        self._draw_pixel_text_sized(screen, f"ITEMS:{collected}/{total}", text_x, text_y, chalk_color, pixel_size)
+        
+        # Draw level (bottom line) with label
+        text_y += line_height
+        self._draw_pixel_text_sized(screen, f"LVL:{level}", text_x, text_y, chalk_color, pixel_size)
+    
+    def _draw_pixel_text_sized(self, surface: pygame.Surface, text: str, x: int, y: int, 
+                                color: Tuple[int, int, int] = None, pixel_size: int = 2):
+        """Draw text using pixel art font with specified pixel size"""
+        if color is None:
+            color = (180, 180, 180)
+        
+        char_width = 5 * pixel_size
+        char_height = 7 * pixel_size
+        spacing = pixel_size  # Space between characters
+        
+        cursor_x = x
+        for char in text.upper():
+            pattern = self._pixel_chars.get(char, self._pixel_chars.get(' '))
+            if pattern:
+                for row_idx, row in enumerate(pattern):
+                    for col_idx, pixel in enumerate(row):
+                        if pixel == '#':
+                            px = cursor_x + col_idx * pixel_size
+                            py = y + row_idx * pixel_size
+                            pygame.draw.rect(surface, color, (px, py, pixel_size, pixel_size))
+            cursor_x += char_width + spacing
         
     def draw_message(
         self, 

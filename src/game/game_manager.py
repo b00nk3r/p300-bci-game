@@ -281,6 +281,14 @@ class GameManager:
         # Generate maze
         self.maze.generate()
         
+        # Mark scoreboard cells (top-right 2 cells) as walls so player can't go there
+        scoreboard_cells = [
+            (width - 2, 0),  # Left cell of scoreboard
+            (width - 1, 0),  # Right cell of scoreboard
+        ]
+        for cell_x, cell_y in scoreboard_cells:
+            self.maze.set_cell(cell_x, cell_y, CellType.WALL)
+        
         # Setup renderer for this maze
         self.renderer.setup(
             self._screen_width, 
