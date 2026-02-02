@@ -3,7 +3,8 @@ Mode Selector
 =============
 Provides mode selection UI for choosing between:
 - Data Collection Mode: For BCI training data collection
-- Game Mode: For playing the maze game with BCI control
+- Game Mode (Normal): For playing the maze game with keyboard/BCI control
+- Game Mode (Testing): For automated testing with generated directions
 """
 
 import pygame
@@ -15,7 +16,14 @@ from typing import Optional, Callable
 class AppMode(Enum):
     """Application operating modes"""
     DATA_COLLECTION = auto()  # For collecting BCI training data
-    GAME = auto()             # For playing the game
+    GAME = auto()             # For playing the game (keyboard/BCI control)
+    GAME_TESTING = auto()     # For automated testing with generated directions
+
+
+class PlayMode(Enum):
+    """Game play modes (how the game is controlled)"""
+    NORMAL = auto()           # Keyboard/BCI controlled
+    TESTING = auto()          # Auto-generated direction controlled
 
 
 @dataclass
@@ -24,6 +32,7 @@ class ModeConfig:
     name: str
     description: str
     color: tuple  # Accent color for mode indicator
+    play_mode: Optional[PlayMode] = None  # Associated play mode for game modes
     
 
 MODE_CONFIGS = {
@@ -31,11 +40,19 @@ MODE_CONFIGS = {
         name="Data Collection",
         description="Collect EEG training data for BCI calibration",
         color=(70, 70, 70),  # Dull gray
+        play_mode=None,
     ),
     AppMode.GAME: ModeConfig(
-        name="Game Mode", 
-        description="Play the maze game using BCI control",
-        color=(60, 60, 60),  # Dull gray
+        name="Game Mode (Normal)", 
+        description="Play the maze game using keyboard or BCI control",
+        color=(60, 80, 60),  # Slight green tint
+        play_mode=PlayMode.NORMAL,
+    ),
+    AppMode.GAME_TESTING: ModeConfig(
+        name="Game Mode (Testing)", 
+        description="Automated testing with auto-generated directions",
+        color=(80, 70, 60),  # Slight orange tint
+        play_mode=PlayMode.TESTING,
     ),
 }
 
@@ -44,7 +61,7 @@ class ModeSelector:
     """
     Mode selection screen shown at startup.
     
-    Allows user to choose between Data Collection and Game modes.
+    Allows user to choose between Data Collection, Game (Normal), and Game (Testing) modes.
     """
     
     def __init__(self, screen_width: int, screen_height: int):
@@ -72,12 +89,12 @@ class ModeSelector:
         self.hint_color = (40, 40, 40)
         
         # Button dimensions
-        self.button_width = 400
-        self.button_height = 120
-        self.button_spacing = 60
+        self.button_width = 450
+        self.button_height = 100
+        self.button_spacing = 40
         
-        # Calculate button positions
-        total_height = 2 * self.button_height + self.button_spacing
+        # Calculate button positions (3 buttons now)
+        total_height = 3 * self.button_height + 2 * self.button_spacing
         start_y = (screen_height - total_height) // 2 + 50
         
         self.buttons = {
@@ -90,6 +107,12 @@ class ModeSelector:
             AppMode.GAME: pygame.Rect(
                 (screen_width - self.button_width) // 2,
                 start_y + self.button_height + self.button_spacing,
+                self.button_width,
+                self.button_height
+            ),
+            AppMode.GAME_TESTING: pygame.Rect(
+                (screen_width - self.button_width) // 2,
+                start_y + 2 * (self.button_height + self.button_spacing),
                 self.button_width,
                 self.button_height
             ),
@@ -123,6 +146,9 @@ class ModeSelector:
             elif event.key == pygame.K_2:
                 self.selected_mode = AppMode.GAME
                 return AppMode.GAME
+            elif event.key == pygame.K_3:
+                self.selected_mode = AppMode.GAME_TESTING
+                return AppMode.GAME_TESTING
                 
         return None
         
@@ -173,13 +199,17 @@ class ModeSelector:
             screen.blit(desc, desc_rect)
             
         # Keyboard hints
-        hint1 = self.hint_font.render("Press 1 for Data Collection", True, self.hint_color)
-        hint1_rect = hint1.get_rect(centerx=self.screen_width // 2 - 120, bottom=self.screen_height - 40)
+        hint1 = self.hint_font.render("1: Data Collection", True, self.hint_color)
+        hint1_rect = hint1.get_rect(centerx=self.screen_width // 2 - 180, bottom=self.screen_height - 40)
         screen.blit(hint1, hint1_rect)
         
-        hint2 = self.hint_font.render("Press 2 for Game Mode", True, self.hint_color)
-        hint2_rect = hint2.get_rect(centerx=self.screen_width // 2 + 120, bottom=self.screen_height - 40)
+        hint2 = self.hint_font.render("2: Game (Normal)", True, self.hint_color)
+        hint2_rect = hint2.get_rect(centerx=self.screen_width // 2, bottom=self.screen_height - 40)
         screen.blit(hint2, hint2_rect)
+        
+        hint3 = self.hint_font.render("3: Game (Testing)", True, self.hint_color)
+        hint3_rect = hint3.get_rect(centerx=self.screen_width // 2 + 180, bottom=self.screen_height - 40)
+        screen.blit(hint3, hint3_rect)
 
 
 class ModeIndicator:
@@ -264,7 +294,10 @@ if __name__ == "__main__":
                 if result:
                     selected_mode = result
                     indicator = ModeIndicator(result, screen_width, screen_height)
+                    config = MODE_CONFIGS[result]
                     print(f"Selected mode: {result.name}")
+                    if config.play_mode:
+                        print(f"  Play mode: {config.play_mode.name}")
         
         # Draw
         if selected_mode:
@@ -274,12 +307,19 @@ if __name__ == "__main__":
             
             # Show hint
             font = pygame.font.Font(None, 36)
-            text = font.render(f"Running in {MODE_CONFIGS[selected_mode].name}", True, (60, 60, 60))
+            config = MODE_CONFIGS[selected_mode]
+            text = font.render(f"Running in {config.name}", True, (60, 60, 60))
             rect = text.get_rect(center=(screen_width // 2, screen_height // 2))
             screen.blit(text, rect)
             
+            # Show play mode if applicable
+            if config.play_mode:
+                mode_text = font.render(f"Play mode: {config.play_mode.name}", True, (50, 50, 50))
+                mode_rect = mode_text.get_rect(center=(screen_width // 2, screen_height // 2 + 35))
+                screen.blit(mode_text, mode_rect)
+            
             hint = pygame.font.Font(None, 24).render("Press ESC to go back", True, (40, 40, 40))
-            hint_rect = hint.get_rect(center=(screen_width // 2, screen_height // 2 + 40))
+            hint_rect = hint.get_rect(center=(screen_width // 2, screen_height // 2 + 80))
             screen.blit(hint, hint_rect)
         else:
             selector.draw(screen)
