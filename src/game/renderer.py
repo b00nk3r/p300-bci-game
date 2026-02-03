@@ -918,164 +918,116 @@ class GameRenderer:
                                 pass
     
     def _create_collectible_sprites(self, cell_size: int):
-        """Create pixel art collectible sprites"""
-        size = int(cell_size * self.config.collectible_size_ratio)
-        pixel_size = max(1, size // 20)  # Smaller pixels for more detail
+        """Load collectible sprites from image files - CS classroom themed"""
+        # Fixed size of 100x100 for collectibles
+        size = 100
         
-        # Coin sprite
-        self._collectible_sprites['coin'] = self._create_pixel_coin(size, pixel_size)
+        # Load Floppy Disk sprite (cheapest - replaces coin)
+        self._collectible_sprites['coin'] = self._load_collectible_image(
+            'floppy_disk.png', size)
         
-        # Gem sprite
-        self._collectible_sprites['gem'] = self._create_pixel_gem(size, pixel_size)
+        # Load Coffee Cup sprite (medium - replaces gem)
+        self._collectible_sprites['gem'] = self._load_collectible_image(
+            'coffee_cup.png', size)
         
-        # Star sprite
-        self._collectible_sprites['star'] = self._create_pixel_star(size, pixel_size)
+        # Load Donut sprite (most expensive - replaces star)
+        self._collectible_sprites['star'] = self._load_collectible_image(
+            'donut.png', size)
     
-    def _create_pixel_coin(self, size: int, pixel_size: int) -> pygame.Surface:
-        """Create a chunky pixel art coin matching Viking style"""
-        sprite = pygame.Surface((size, size), pygame.SRCALPHA)
+    def _load_collectible_image(self, filename: str, target_size: int) -> pygame.Surface:
+        """Load a collectible image, make background transparent, and scale"""
+        import os
         
-        # Use larger pixels for chunky look
-        p = max(2, size // 8)
-        
-        color = self.config.coin_color
-        highlight = tuple(min(255, c + 50) for c in color)
-        shadow = tuple(max(0, c - 50) for c in color)
-        dark = tuple(max(0, c - 30) for c in color)
-        
-        center = size // 2
-        
-        # Draw chunky circular coin (simplified octagon-like shape)
-        # Row by row for pixel-perfect look
-        coin_pattern = [
-            (2, 4),   # top row: start at 2, width 4
-            (1, 6),   # second row
-            (0, 8),   # full width rows
-            (0, 8),
-            (0, 8),
-            (0, 8),
-            (1, 6),   # narrowing
-            (2, 4),   # bottom row
+        # Try multiple paths
+        paths_to_try = [
+            f'assets/{filename}',
+            f'/home/claude/test_bci_project/assets/{filename}',
+            os.path.join(os.path.dirname(__file__), '..', '..', 'assets', filename),
         ]
         
-        start_y = center - len(coin_pattern) * p // 2
+        image = None
+        for path in paths_to_try:
+            if os.path.exists(path):
+                try:
+                    image = pygame.image.load(path).convert_alpha()
+                    print(f"Loaded collectible from {path}")
+                    break
+                except Exception as e:
+                    print(f"Failed to load {path}: {e}")
         
-        for row_idx, (indent, width) in enumerate(coin_pattern):
-            y = start_y + row_idx * p
-            x = center - width * p // 2
-            
-            for col in range(width):
-                px = x + col * p
+        if image is None:
+            # Fallback: create a simple colored square
+            print(f"Warning: Could not load {filename}, using fallback")
+            fallback = pygame.Surface((target_size, target_size), pygame.SRCALPHA)
+            pygame.draw.rect(fallback, (60, 60, 60), (0, 0, target_size, target_size))
+            return fallback
+        
+        # Make black background transparent
+        # Convert to per-pixel alpha
+        width, height = image.get_size()
+        
+        for y in range(height):
+            for x in range(width):
+                pixel = image.get_at((x, y))
+                r, g, b, a = pixel
                 
-                # Determine color based on position for 3D effect
-                if row_idx < 2 or col < 2:
-                    c = highlight
-                elif row_idx > 5 or col > width - 3:
-                    c = shadow
-                else:
-                    c = color
-                
-                pygame.draw.rect(sprite, c, (px, y, p, p))
+                # Make pure black and near-black pixels transparent
+                if r <= 5 and g <= 5 and b <= 5:
+                    image.set_at((x, y), (0, 0, 0, 0))
         
-        # Inner circle/detail
-        inner_size = p * 2
-        pygame.draw.rect(sprite, dark, (center - inner_size // 2, center - inner_size // 2, inner_size, inner_size))
-        # Shine
-        pygame.draw.rect(sprite, highlight, (center - p * 2, center - p * 2, p, p))
+        # Find content bounds (non-transparent area)
+        min_x, min_y = width, height
+        max_x, max_y = 0, 0
         
-        return sprite
-    
-    def _create_pixel_gem(self, size: int, pixel_size: int) -> pygame.Surface:
-        """Create a chunky pixel art gem matching Viking style"""
-        sprite = pygame.Surface((size, size), pygame.SRCALPHA)
+        for y in range(height):
+            for x in range(width):
+                if image.get_at((x, y))[3] > 10:  # Has some alpha
+                    min_x = min(min_x, x)
+                    min_y = min(min_y, y)
+                    max_x = max(max_x, x)
+                    max_y = max(max_y, y)
         
-        # Use larger pixels for chunky look
-        p = max(2, size // 8)
+        # Crop to content with small padding
+        padding = 2
+        min_x = max(0, min_x - padding)
+        min_y = max(0, min_y - padding)
+        max_x = min(width - 1, max_x + padding)
+        max_y = min(height - 1, max_y + padding)
         
-        color = self.config.gem_color
-        highlight = tuple(min(255, c + 60) for c in color)
-        shadow = tuple(max(0, c - 50) for c in color)
+        content_width = max_x - min_x + 1
+        content_height = max_y - min_y + 1
         
-        center = size // 2
+        if content_width <= 0 or content_height <= 0:
+            # No content found, return original scaled
+            return pygame.transform.scale(image, (target_size, target_size))
         
-        # Diamond shape - row by row
-        gem_pattern = [
-            1,  # top point
-            2,
-            3,
-            4,  # widest
-            4,
-            3,
-            2,
-            1,  # bottom point
-        ]
+        # Crop
+        cropped = pygame.Surface((content_width, content_height), pygame.SRCALPHA)
+        cropped.blit(image, (0, 0), (min_x, min_y, content_width, content_height))
         
-        start_y = center - len(gem_pattern) * p // 2
+        # Scale to fit target size while maintaining aspect ratio
+        aspect = content_width / content_height
         
-        for row_idx, width in enumerate(gem_pattern):
-            y = start_y + row_idx * p
-            x = center - width * p // 2
-            
-            for col in range(width):
-                px = x + col * p
-                
-                # Top half lighter, bottom half darker
-                if row_idx < 4:
-                    c = highlight if col < width // 2 else color
-                else:
-                    c = color if col < width // 2 else shadow
-                
-                pygame.draw.rect(sprite, c, (px, y, p, p))
+        if aspect > 1:
+            # Wider than tall
+            new_width = target_size
+            new_height = int(target_size / aspect)
+        else:
+            # Taller than wide
+            new_height = target_size
+            new_width = int(target_size * aspect)
         
-        # Shine highlight
-        pygame.draw.rect(sprite, (255, 255, 255) if highlight[0] > 200 else highlight, 
-                        (center - p, start_y + p, p, p))
+        scaled = pygame.transform.scale(cropped, (new_width, new_height))
         
-        return sprite
-    
-    def _create_pixel_star(self, size: int, pixel_size: int) -> pygame.Surface:
-        """Create a chunky pixel art star matching Viking style"""
-        sprite = pygame.Surface((size, size), pygame.SRCALPHA)
+        # Center in target_size square
+        final = pygame.Surface((target_size, target_size), pygame.SRCALPHA)
+        x_offset = (target_size - new_width) // 2
+        y_offset = (target_size - new_height) // 2
+        final.blit(scaled, (x_offset, y_offset))
         
-        # Use larger pixels for chunky look
-        p = max(2, size // 8)
+        print(f"  Processed {filename}: {width}x{height} -> {new_width}x{new_height} (target {target_size})")
         
-        color = self.config.star_color
-        highlight = tuple(min(255, c + 40) for c in color)
-        shadow = tuple(max(0, c - 40) for c in color)
-        
-        center = size // 2
-        
-        # 4-pointed star using simple cross pattern
-        arm_length = p * 3
-        arm_width = p * 2
-        
-        # Vertical arm
-        pygame.draw.rect(sprite, color, 
-                        (center - arm_width // 2, center - arm_length, arm_width, arm_length * 2))
-        # Horizontal arm
-        pygame.draw.rect(sprite, color,
-                        (center - arm_length, center - arm_width // 2, arm_length * 2, arm_width))
-        
-        # Center bright spot
-        pygame.draw.rect(sprite, highlight,
-                        (center - p, center - p, p * 2, p * 2))
-        
-        # Top highlight
-        pygame.draw.rect(sprite, highlight,
-                        (center - arm_width // 2, center - arm_length, arm_width, p))
-        # Left highlight
-        pygame.draw.rect(sprite, highlight,
-                        (center - arm_length, center - arm_width // 2, p, arm_width))
-        
-        # Bottom shadow
-        pygame.draw.rect(sprite, shadow,
-                        (center - arm_width // 2, center + arm_length - p, arm_width, p))
-        # Right shadow  
-        pygame.draw.rect(sprite, shadow,
-                        (center + arm_length - p, center - arm_width // 2, p, arm_width))
-        
-        return sprite
+        return final
         
     def grid_to_screen(self, grid_x: float, grid_y: float) -> Tuple[int, int]:
         """Convert grid coordinates to screen coordinates"""
