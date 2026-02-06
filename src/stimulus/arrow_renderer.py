@@ -172,48 +172,69 @@ class ArrowRenderer:
         # Draw the plus shape as a single filled polygon (no overlap issues)
         pygame.draw.polygon(self._panel_surface, panel_color_with_alpha, points)
         
-        # Draw border as individual 1px thick rectangles for consistent thickness
-        border_thickness = 1
+        # Pixel art style border - chunky 4px with highlight/shadow effect
+        border_thickness = 4
         
-        # Helper function to draw a border segment as a rectangle
-        def draw_border_segment(x1, y1, x2, y2):
+        # Border colors for pixel art 3D effect (derived from panel color, same base)
+        border_light = tuple(min(255, c + 50) for c in self._panel_color) + (255,)
+        border_dark = tuple(max(0, c - 10) for c in self._panel_color) + (255,)
+        border_mid = border_color  # Original border color
+        
+        # Helper function to draw a chunky pixel art border segment
+        def draw_pixel_border_segment(x1, y1, x2, y2, is_top_or_left=True):
+            """Draw a chunky pixel art border with highlight/shadow"""
             if x1 == x2:  # Vertical line
                 rect_x = x1 - border_thickness // 2
                 rect_y = min(y1, y2)
                 rect_w = border_thickness
                 rect_h = abs(y2 - y1)
+                # Main border
+                pygame.draw.rect(self._panel_surface, border_mid, (rect_x, rect_y, rect_w, rect_h))
+                # Highlight on left edge (if left side of shape)
+                if is_top_or_left:
+                    pygame.draw.rect(self._panel_surface, border_light, (rect_x, rect_y, 1, rect_h))
+                # Shadow on right edge
+                else:
+                    pygame.draw.rect(self._panel_surface, border_dark, (rect_x + rect_w - 1, rect_y, 1, rect_h))
             else:  # Horizontal line
                 rect_x = min(x1, x2)
                 rect_y = y1 - border_thickness // 2
                 rect_w = abs(x2 - x1)
                 rect_h = border_thickness
-            pygame.draw.rect(self._panel_surface, border_color, (rect_x, rect_y, rect_w, rect_h))
+                # Main border
+                pygame.draw.rect(self._panel_surface, border_mid, (rect_x, rect_y, rect_w, rect_h))
+                # Highlight on top edge (if top of shape)
+                if is_top_or_left:
+                    pygame.draw.rect(self._panel_surface, border_light, (rect_x, rect_y, rect_w, 1))
+                # Shadow on bottom edge
+                else:
+                    pygame.draw.rect(self._panel_surface, border_dark, (rect_x, rect_y + rect_h - 1, rect_w, 1))
         
-        # Draw all 12 border segments
-        # Top of vertical strip (horizontal)
-        draw_border_segment(vert_left, vert_top, vert_right, vert_top)
-        # Right side of vertical strip, upper part (vertical)
-        draw_border_segment(vert_right, vert_top, vert_right, horiz_top)
-        # Top of horizontal strip, right part (horizontal)
-        draw_border_segment(vert_right, horiz_top, horiz_right, horiz_top)
-        # Right side of horizontal strip (vertical)
-        draw_border_segment(horiz_right, horiz_top, horiz_right, horiz_bottom)
-        # Bottom of horizontal strip, right part (horizontal)
-        draw_border_segment(horiz_right, horiz_bottom, vert_right, horiz_bottom)
-        # Right side of vertical strip, lower part (vertical)
-        draw_border_segment(vert_right, horiz_bottom, vert_right, vert_bottom)
-        # Bottom of vertical strip (horizontal)
-        draw_border_segment(vert_right, vert_bottom, vert_left, vert_bottom)
-        # Left side of vertical strip, lower part (vertical)
-        draw_border_segment(vert_left, vert_bottom, vert_left, horiz_bottom)
-        # Bottom of horizontal strip, left part (horizontal)
-        draw_border_segment(vert_left, horiz_bottom, horiz_left, horiz_bottom)
-        # Left side of horizontal strip (vertical)
-        draw_border_segment(horiz_left, horiz_bottom, horiz_left, horiz_top)
-        # Top of horizontal strip, left part (horizontal)
-        draw_border_segment(horiz_left, horiz_top, vert_left, horiz_top)
-        # Left side of vertical strip, upper part (vertical)
-        draw_border_segment(vert_left, horiz_top, vert_left, vert_top)
+        # Draw all 12 border segments with pixel art shading
+        # Top of vertical strip (horizontal) - top edge, light
+        draw_pixel_border_segment(vert_left, vert_top, vert_right, vert_top, True)
+        # Right side of vertical strip, upper part (vertical) - right edge, dark
+        draw_pixel_border_segment(vert_right, vert_top, vert_right, horiz_top, False)
+        # Top of horizontal strip, right part (horizontal) - top edge, light
+        draw_pixel_border_segment(vert_right, horiz_top, horiz_right, horiz_top, True)
+        # Right side of horizontal strip (vertical) - right edge, dark
+        draw_pixel_border_segment(horiz_right, horiz_top, horiz_right, horiz_bottom, False)
+        # Bottom of horizontal strip, right part (horizontal) - bottom edge, dark
+        draw_pixel_border_segment(horiz_right, horiz_bottom, vert_right, horiz_bottom, False)
+        # Right side of vertical strip, lower part (vertical) - right edge, dark
+        draw_pixel_border_segment(vert_right, horiz_bottom, vert_right, vert_bottom, False)
+        # Bottom of vertical strip (horizontal) - bottom edge, dark
+        draw_pixel_border_segment(vert_right, vert_bottom, vert_left, vert_bottom, False)
+        # Left side of vertical strip, lower part (vertical) - left edge, light
+        draw_pixel_border_segment(vert_left, vert_bottom, vert_left, horiz_bottom, True)
+        # Bottom of horizontal strip, left part (horizontal) - bottom edge, dark
+        draw_pixel_border_segment(vert_left, horiz_bottom, horiz_left, horiz_bottom, False)
+        # Left side of horizontal strip (vertical) - left edge, light
+        draw_pixel_border_segment(horiz_left, horiz_bottom, horiz_left, horiz_top, True)
+        # Top of horizontal strip, left part (horizontal) - top edge, light
+        draw_pixel_border_segment(horiz_left, horiz_top, vert_left, horiz_top, True)
+        # Left side of vertical strip, upper part (vertical) - left edge, light
+        draw_pixel_border_segment(vert_left, horiz_top, vert_left, vert_top, True)
         
         # Store plus-shape geometry for hit testing (in screen coordinates)
         self._plus_shape = {
@@ -257,11 +278,12 @@ class ArrowRenderer:
         size: int
     ) -> pygame.Surface:
         """
-        Create a single arrow surface.
+        Create a single arrow surface with pixel art styling.
         
-        The arrow is a solid filled isosceles triangle:
+        The arrow is a solid filled isosceles triangle with pixel art borders:
         - Bounding box: 100×100 px (configurable via size)
         - Triangle: 80px length, 60px base (configurable in ArrowConfig)
+        - Pixel art highlight/shadow edges for 3D effect
         
         Args:
             direction: Which way the arrow points
@@ -280,11 +302,42 @@ class ArrowRenderer:
         # Draw filled arrow (solid triangle)
         pygame.draw.polygon(surface, color, points)
         
-        # Optional: Add subtle outline for depth
-        outline_color = tuple(max(0, c - 30) for c in color)
-        pygame.draw.polygon(surface, outline_color, points, 2)
+        # Pixel art style: chunky border with highlight/shadow
+        # Same colors as original, just with pixel art shading
+        highlight_color = tuple(min(255, c + 40) for c in color)
+        shadow_color = tuple(max(0, c - 40) for c in color)
+        
+        # Draw chunky pixel art outline (4px thick)
+        border_width = 4
+        pygame.draw.polygon(surface, shadow_color, points, border_width)
+        
+        # Add highlight edge based on direction (top-left edges get highlight)
+        if len(points) >= 3:
+            p0, p1, p2 = points[0], points[1], points[2]
+            
+            if direction == Direction.UP:
+                # Highlight on left edge (p0 to p1) and top portion
+                self._draw_pixel_line(surface, p0, p1, highlight_color, 2)
+                self._draw_pixel_line(surface, p0, p2, shadow_color, 2)
+            elif direction == Direction.DOWN:
+                # Highlight on top edges
+                self._draw_pixel_line(surface, p1, p2, highlight_color, 2)
+                self._draw_pixel_line(surface, p0, p1, shadow_color, 2)
+            elif direction == Direction.LEFT:
+                # Highlight on top edge
+                self._draw_pixel_line(surface, p0, p1, highlight_color, 2)
+                self._draw_pixel_line(surface, p0, p2, shadow_color, 2)
+            elif direction == Direction.RIGHT:
+                # Highlight on top edge
+                self._draw_pixel_line(surface, p1, p2, highlight_color, 2)
+                self._draw_pixel_line(surface, p0, p2, shadow_color, 2)
         
         return surface
+    
+    def _draw_pixel_line(self, surface: pygame.Surface, p1: tuple, p2: tuple, 
+                         color: Tuple[int, int, int], width: int):
+        """Draw a pixel art style line between two points"""
+        pygame.draw.line(surface, color, p1, p2, width)
         
     def _get_arrow_points(
         self, 
