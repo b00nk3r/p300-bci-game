@@ -71,6 +71,11 @@ class Application:
         self.render_offset = (0, 0)
         self.scaled_size = (DESIGN_WIDTH, DESIGN_HEIGHT)
         
+        # Display info
+        self.num_displays = 1
+        self.display_index = 0
+        self.display_override = False  # True if manually set via command line
+        
         # State
         self.show_debug = config.debug
         self.last_selection: SelectionResult = None
@@ -84,6 +89,15 @@ class Application:
         """Initialize pygame and all components"""
         pygame.init()
         
+        # Detect available displays
+        self.num_displays = pygame.display.get_num_displays()
+        
+        # Auto-select display if not manually overridden
+        if not self.display_override:
+            # Use second display if available, otherwise use primary
+            # This allows the app to work on both single and dual-display setups
+            self.display_index = 1 if self.num_displays > 1 else 0
+        
         # Create display
         flags = pygame.DOUBLEBUF
         if self.config.display.fullscreen:
@@ -91,7 +105,8 @@ class Application:
             
         self.screen = pygame.display.set_mode(
             (self.config.display.width, self.config.display.height),
-            flags
+            flags,
+            display=self.display_index
         )
         pygame.display.set_caption("P300 BCI Game - Salem State University")
         
@@ -270,6 +285,12 @@ class Application:
         print("=" * 50)
         print("P300 BCI Game - Salem State University")
         print("=" * 50)
+        print()
+        print("Display:")
+        print(f"  Available displays: {self.num_displays}")
+        display_type = "(primary)" if self.display_index == 0 else "(secondary)"
+        override_text = " [manual]" if self.display_override else " [auto]"
+        print(f"  Using display: {self.display_index + 1} {display_type}{override_text}")
         print()
         print("Configuration:")
         print(f"  Window: {self.config.display.width}x{self.config.display.height}")
@@ -683,6 +704,12 @@ def parse_args():
         default=None,
         help="Number of sequences per selection (default: from config)"
     )
+    parser.add_argument(
+        "--display",
+        type=int,
+        default=None,
+        help="Display index to use (0=primary, 1=secondary, etc.). If not specified, automatically uses second display when available"
+    )
     return parser.parse_args()
 
 
@@ -703,6 +730,12 @@ def main():
     # Create and run application
     try:
         app = Application(config)
+        
+        # Allow manual display override via command line
+        if args.display is not None:
+            app.display_index = args.display
+            app.display_override = True
+            
         app.initialize()
         app.run()
     except KeyboardInterrupt:
