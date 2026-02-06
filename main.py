@@ -35,6 +35,13 @@ from src.game.game_manager import GameManager, GameManagerConfig, GameState
 from src.data.session_logger import SessionLogger
 
 
+# Design resolution - the resolution all game elements are laid out for.
+# The game always renders internally at this resolution, then scales to fit
+# whatever window size the user requests.
+DESIGN_WIDTH = 3072
+DESIGN_HEIGHT = 1920
+
+
 class Application:
     """
     Main application class for P300 BCI Game.
@@ -57,6 +64,12 @@ class Application:
         self.settings_panel: SettingsPanel = None
         self.game_manager: GameManager = None
         self.session_logger: SessionLogger = None
+        
+        # Resolution-independent rendering
+        self.render_surface = None  # Internal surface at design resolution
+        self.scale_factor = 1.0
+        self.render_offset = (0, 0)
+        self.scaled_size = (DESIGN_WIDTH, DESIGN_HEIGHT)
         
         # State
         self.show_debug = config.debug
@@ -84,6 +97,10 @@ class Application:
         
         self.clock = pygame.time.Clock()
         
+        # Create render surface at design resolution
+        self.render_surface = pygame.Surface((DESIGN_WIDTH, DESIGN_HEIGHT))
+        self._calculate_scaling()
+        
         # Create fonts
         self.font_large = pygame.font.Font(None, 48)
         self.font_medium = pygame.font.Font(None, 32)
@@ -104,12 +121,50 @@ class Application:
         # Print startup info
         self._print_startup_info()
         
+    def _calculate_scaling(self):
+        """Calculate scale factor and offset for resolution-independent rendering.
+        
+        Maps the design resolution (DESIGN_WIDTH x DESIGN_HEIGHT) to the actual
+        window, maintaining aspect ratio with letterboxing if needed.
+        """
+        window_w = self.config.display.width
+        window_h = self.config.display.height
+        
+        scale_x = window_w / DESIGN_WIDTH
+        scale_y = window_h / DESIGN_HEIGHT
+        self.scale_factor = min(scale_x, scale_y)
+        
+        # Calculate scaled dimensions and centering offset (letterboxing)
+        scaled_w = int(DESIGN_WIDTH * self.scale_factor)
+        scaled_h = int(DESIGN_HEIGHT * self.scale_factor)
+        self.scaled_size = (scaled_w, scaled_h)
+        self.render_offset = (
+            (window_w - scaled_w) // 2,
+            (window_h - scaled_h) // 2
+        )
+        
+    def _transform_event(self, event):
+        """Transform mouse coordinates from window space to design resolution space."""
+        if event.type in (pygame.MOUSEMOTION, pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP):
+            x, y = event.pos
+            # Remove letterbox offset and scale to design resolution
+            x = int((x - self.render_offset[0]) / self.scale_factor)
+            y = int((y - self.render_offset[1]) / self.scale_factor)
+            
+            attrs = dict(event.__dict__)
+            attrs['pos'] = (x, y)
+            if event.type == pygame.MOUSEMOTION and hasattr(event, 'rel'):
+                rx, ry = event.rel
+                attrs['rel'] = (int(rx / self.scale_factor), int(ry / self.scale_factor))
+            return pygame.event.Event(event.type, **attrs)
+        return event
+        
     def _init_arrow_manager(self):
         """Initialize the arrow stimulus system"""
         self.arrow_manager = ArrowManager(self.config)
         self.arrow_manager.initialize(
-            self.config.display.width, 
-            self.config.display.height
+            DESIGN_WIDTH, 
+            DESIGN_HEIGHT
         )
         
         # Set callbacks
@@ -127,8 +182,8 @@ class Application:
     def _init_settings_panel(self):
         """Initialize the settings panel"""
         self.settings_panel = SettingsPanel(
-            self.config.display.width,
-            self.config.display.height
+            DESIGN_WIDTH,
+            DESIGN_HEIGHT
         )
         
         # Set current values from config
@@ -166,8 +221,8 @@ class Application:
         # Calculate maze dimensions to fill screen
         margin = 0  # No margin - fill entire screen
         
-        maze_width_cells = (self.config.display.width - margin * 2) // cell_size
-        maze_height_cells = (self.config.display.height - margin * 2) // cell_size
+        maze_width_cells = (DESIGN_WIDTH - margin * 2) // cell_size
+        maze_height_cells = (DESIGN_HEIGHT - margin * 2) // cell_size
         
         # For corridor mode, we don't need odd dimensions
         # Use corridor mode for large cells (simpler paths)
@@ -189,13 +244,13 @@ class Application:
         
         # Get arrow positions for plus-shaped forbidden zone
         arrow_positions = self.config.layout.get_positions(
-            self.config.display.width,
-            self.config.display.height
+            DESIGN_WIDTH,
+            DESIGN_HEIGHT
         )
         
         self.game_manager.initialize(
-            self.config.display.width,
-            self.config.display.height,
+            DESIGN_WIDTH,
+            DESIGN_HEIGHT,
             panel_rect,
             arrow_positions
         )
@@ -217,7 +272,9 @@ class Application:
         print("=" * 50)
         print()
         print("Configuration:")
-        print(f"  Display: {self.config.display.width}x{self.config.display.height}")
+        print(f"  Window: {self.config.display.width}x{self.config.display.height}")
+        print(f"  Design: {DESIGN_WIDTH}x{DESIGN_HEIGHT}")
+        print(f"  Scale: {self.scale_factor:.3f}x")
         print(f"  Fullscreen: {self.config.display.fullscreen}")
         print()
         print("Timing:")
@@ -265,6 +322,9 @@ class Application:
             if event.type == pygame.QUIT:
                 self.running = False
                 continue
+            
+            # Transform mouse coordinates from window space to design space
+            event = self._transform_event(event)
                 
             # Let settings panel handle events first (if visible)
             if self.settings_panel and self.settings_panel.is_visible:
@@ -460,16 +520,21 @@ class Application:
             self.game_manager.update(delta_ms)
         
     def _draw(self):
-        """Render frame"""
-        # Clear screen
-        self.screen.fill(self.config.display.background_color)
+        """Render frame.
+        
+        All components render to self.render_surface at the design resolution
+        (DESIGN_WIDTH x DESIGN_HEIGHT). The result is then scaled to fit the
+        actual window, maintaining aspect ratio.
+        """
+        # Clear render surface
+        self.render_surface.fill(self.config.display.background_color)
         
         # Draw game (maze, collectibles, player) - behind arrows
         if self.game_manager:
-            self.game_manager.draw(self.screen)
+            self.game_manager.draw(self.render_surface)
         
         # Draw arrows (on top of game)
-        self.arrow_manager.draw(self.screen)
+        self.arrow_manager.draw(self.render_surface)
         
         # Draw UI overlays (debug only now - scoreboard is part of game renderer)
         if self.show_debug:
@@ -477,7 +542,16 @@ class Application:
             
         # Draw settings panel (on top of everything)
         if self.settings_panel:
-            self.settings_panel.draw(self.screen)
+            self.settings_panel.draw(self.render_surface)
+        
+        # Scale render surface to actual window
+        self.screen.fill((0, 0, 0))  # Black letterbox bars
+        if self.scale_factor == 1.0 and self.render_offset == (0, 0):
+            # No scaling needed - direct blit
+            self.screen.blit(self.render_surface, (0, 0))
+        else:
+            scaled = pygame.transform.smoothscale(self.render_surface, self.scaled_size)
+            self.screen.blit(scaled, self.render_offset)
             
         # Flip display
         pygame.display.flip()
@@ -488,11 +562,11 @@ class Application:
         bar_height = 40
         bar_rect = pygame.Rect(
             0, 
-            self.config.display.height - bar_height,
-            self.config.display.width,
+            DESIGN_HEIGHT - bar_height,
+            DESIGN_WIDTH,
             bar_height
         )
-        pygame.draw.rect(self.screen, (15, 15, 15), bar_rect)
+        pygame.draw.rect(self.render_surface, (15, 15, 15), bar_rect)
         
         # Status text
         state = self.arrow_manager.state
@@ -515,10 +589,10 @@ class Application:
             
         text = self.font_medium.render(status, True, color)
         text_rect = text.get_rect(
-            centerx=self.config.display.width // 2,
-            centery=self.config.display.height - bar_height // 2
+            centerx=DESIGN_WIDTH // 2,
+            centery=DESIGN_HEIGHT - bar_height // 2
         )
-        self.screen.blit(text, text_rect)
+        self.render_surface.blit(text, text_rect)
         
     def _draw_debug(self):
         """Draw debug information overlay"""
@@ -530,6 +604,9 @@ class Application:
             f"Flash: {self.config.timing.flash_duration_ms}ms",
             f"ISI: {self.config.timing.isi_ms}ms",
             f"Sequences: {self.config.timing.num_sequences}",
+            "",
+            f"Window: {self.config.display.width}x{self.config.display.height}",
+            f"Scale: {self.scale_factor:.2f}x",
         ]
         
         if self.last_selection:
@@ -546,22 +623,22 @@ class Application:
         height = len(lines) * line_height + padding * 2
         
         bg_rect = pygame.Rect(
-            self.config.display.width - width - padding,
+            DESIGN_WIDTH - width - padding,
             padding,
             width,
             height
         )
         bg_surface = pygame.Surface((width, height), pygame.SRCALPHA)
         bg_surface.fill((0, 0, 0, 180))
-        self.screen.blit(bg_surface, bg_rect.topleft)
+        self.render_surface.blit(bg_surface, bg_rect.topleft)
         
         # Draw text
         y = padding * 2
         for line in lines:
             if line:
                 text = self.font_small.render(line, True, (60, 60, 60))
-                self.screen.blit(text, 
-                    (self.config.display.width - width, y))
+                self.render_surface.blit(text, 
+                    (DESIGN_WIDTH - width, y))
             y += line_height
             
     def _cleanup(self):
