@@ -173,6 +173,8 @@ class ArrowManager:
         # Callbacks
         self._on_selection_complete: Optional[Callable[[SelectionResult], None]] = None
         self._on_state_change: Optional[Callable[[SelectionState], None]] = None
+        self._on_flash_start: Optional[Callable[[Direction, int, float], None]] = None
+        self._on_flash_end: Optional[Callable[[Direction, int, float], None]] = None
         
         # Setup timing callbacks
         self.timing.set_callbacks(
@@ -202,6 +204,8 @@ class ArrowManager:
         self,
         on_selection_complete: Optional[Callable[[SelectionResult], None]] = None,
         on_state_change: Optional[Callable[[SelectionState], None]] = None,
+        on_flash_start: Optional[Callable[[Direction, int, float], None]] = None,
+        on_flash_end: Optional[Callable[[Direction, int, float], None]] = None,
     ):
         """
         Set callback functions.
@@ -209,9 +213,13 @@ class ArrowManager:
         Args:
             on_selection_complete: Called when selection finishes
             on_state_change: Called when state changes
+            on_flash_start: Called when flash begins (direction, sequence, timestamp_ms)
+            on_flash_end: Called when flash ends (direction, sequence, timestamp_ms)
         """
         self._on_selection_complete = on_selection_complete
         self._on_state_change = on_state_change
+        self._on_flash_start = on_flash_start
+        self._on_flash_end = on_flash_end
         
     def start_selection(self):
         """Begin a new BCI selection (start flashing arrows)"""
@@ -303,9 +311,17 @@ class ArrowManager:
         # Send trigger
         self.triggers.send_flash(direction)
         
+        # Call external callback for logging
+        if self._on_flash_start:
+            self._on_flash_start(direction, sequence, time_ms)
+        
     def _handle_flash_end(self, direction: Direction, sequence: int, time_ms: float):
         """Called when a flash ends"""
         self._flash_states[direction] = False
+        
+        # Call external callback for logging
+        if self._on_flash_end:
+            self._on_flash_end(direction, sequence, time_ms)
         
     def _handle_sequence_complete(self, sequence: int):
         """Called when a sequence finishes"""
@@ -481,7 +497,7 @@ def demo():
         
         y = 10
         for line in status_lines:
-            text = font.render(line, True, (50, 50, 50))
+            text = font.render(line, True, (100, 100, 100))
             screen.blit(text, (10, y))
             y += 30
             

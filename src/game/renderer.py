@@ -51,7 +51,6 @@ class RenderConfig:
     player_direction_color: Tuple[int, int, int] = (80, 80, 80)
     
     # Collectible colors (much duller gray shades)
-    coin_color: Tuple[int, int, int] = (75, 75, 75)
     gem_color: Tuple[int, int, int] = (60, 60, 60)
     star_color: Tuple[int, int, int] = (80, 80, 80)
     
@@ -922,15 +921,11 @@ class GameRenderer:
         # Fixed size of 100x100 for collectibles
         size = 100
         
-        # Load Floppy Disk sprite (cheapest - replaces coin)
-        self._collectible_sprites['coin'] = self._load_collectible_image(
-            'floppy_disk.png', size)
-        
-        # Load Coffee Cup sprite (medium - replaces gem)
+        # Load Coffee Cup sprite (medium value - GEM type)
         self._collectible_sprites['gem'] = self._load_collectible_image(
             'coffee_cup.png', size)
         
-        # Load Donut sprite (most expensive - replaces star)
+        # Load Donut sprite (high value - STAR type)
         self._collectible_sprites['star'] = self._load_collectible_image(
             'donut.png', size)
     
@@ -1220,25 +1215,16 @@ class GameRenderer:
         screen_x, screen_y = self.grid_to_screen(item.x, item.y)
         
         # Get the appropriate sprite
-        if item.type == CollectibleType.COIN:
-            sprite = self._collectible_sprites.get('coin')
-        elif item.type == CollectibleType.GEM:
+        if item.type == CollectibleType.GEM:
             sprite = self._collectible_sprites.get('gem')
         elif item.type == CollectibleType.STAR:
             sprite = self._collectible_sprites.get('star')
         else:
-            sprite = self._collectible_sprites.get('coin')  # Default
+            sprite = self._collectible_sprites.get('gem')  # Default
         
         if sprite:
             # Center the sprite on the position
             sprite_rect = sprite.get_rect(center=(screen_x, screen_y))
-            screen.blit(sprite, sprite_rect)
-            
-    def _draw_coin(self, screen: pygame.Surface, cx: int, cy: int, size: int):
-        """Draw a coin using pixel art sprite"""
-        sprite = self._collectible_sprites.get('coin')
-        if sprite:
-            sprite_rect = sprite.get_rect(center=(cx, cy))
             screen.blit(sprite, sprite_rect)
         
     def _draw_gem(
@@ -1246,7 +1232,7 @@ class GameRenderer:
         cx: int, cy: int, size: int,
         current_time: float, config
     ):
-        """Draw a gem using pixel art sprite"""
+        """Draw a gem (coffee cup) using pixel art sprite"""
         sprite = self._collectible_sprites.get('gem')
         if sprite:
             sprite_rect = sprite.get_rect(center=(cx, cy))
@@ -1257,7 +1243,7 @@ class GameRenderer:
         cx: int, cy: int, size: int,
         current_time: float, config
     ):
-        """Draw a star using pixel art sprite"""
+        """Draw a star (donut) using pixel art sprite"""
         sprite = self._collectible_sprites.get('star')
         if sprite:
             sprite_rect = sprite.get_rect(center=(cx, cy))

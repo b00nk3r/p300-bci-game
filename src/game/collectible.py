@@ -18,9 +18,8 @@ from dataclasses import dataclass, field
 
 class CollectibleType(Enum):
     """Types of collectible items"""
-    COIN = auto()       # Basic collectible
-    GEM = auto()        # Higher value
-    STAR = auto()       # Rare, high value
+    GEM = auto()        # Coffee cup - medium value
+    STAR = auto()       # Donut - high value
     POWERUP = auto()    # Special effect (future use)
 
 
@@ -28,10 +27,9 @@ class CollectibleType(Enum):
 class CollectibleConfig:
     """Configuration for collectibles"""
     # Point values
-    coin_points: int = 10
-    gem_points: int = 25
-    star_points: int = 50
-    powerup_points: int = 0  # Powerups give effects, not points
+    gem_points: int = 25       # Coffee cup
+    star_points: int = 50      # Donut
+    powerup_points: int = 0    # Powerups give effects, not points
     
     # Appearance
     size_ratio: float = 0.5  # Size relative to cell size
@@ -42,7 +40,6 @@ class CollectibleConfig:
     rotation_speed: float = 90.0  # Degrees per second (for gems/stars)
     
     # Colors (dull grayscale to make arrows stand out)
-    coin_color: Tuple[int, int, int] = (75, 75, 75)      # Dull gray
     gem_color: Tuple[int, int, int] = (60, 60, 60)       # Dull gray
     star_color: Tuple[int, int, int] = (80, 80, 80)      # Dull gray
     powerup_color: Tuple[int, int, int] = (70, 70, 70)   # Dull gray
@@ -60,7 +57,7 @@ class Collectible:
     """
     x: int
     y: int
-    type: CollectibleType = CollectibleType.COIN
+    type: CollectibleType = CollectibleType.GEM
     collected: bool = False
     
     # Animation state
@@ -139,7 +136,7 @@ class CollectibleManager:
         self._total_score = 0
         self._collected_count = 0
         
-    def spawn(self, x: int, y: int, type: CollectibleType = CollectibleType.COIN):
+    def spawn(self, x: int, y: int, type: CollectibleType = CollectibleType.GEM):
         """
         Spawn a collectible at position.
         
@@ -166,9 +163,8 @@ class CollectibleManager:
         """
         if type_weights is None:
             type_weights = {
-                CollectibleType.COIN: 0.7,
-                CollectibleType.GEM: 0.2,
-                CollectibleType.STAR: 0.1,
+                CollectibleType.GEM: 0.7,   # Coffee cup - more common
+                CollectibleType.STAR: 0.3,  # Donut - less common
             }
             
         # Normalize weights
@@ -189,7 +185,7 @@ class CollectibleManager:
             import random
             r = random.random() * total_weight
             cumulative = 0
-            chosen_type = CollectibleType.COIN
+            chosen_type = CollectibleType.GEM
             
             for ctype, weight in type_weights.items():
                 cumulative += weight
@@ -224,7 +220,6 @@ class CollectibleManager:
     def get_points(self, type: CollectibleType) -> int:
         """Get point value for collectible type"""
         points_map = {
-            CollectibleType.COIN: self.config.coin_points,
             CollectibleType.GEM: self.config.gem_points,
             CollectibleType.STAR: self.config.star_points,
             CollectibleType.POWERUP: self.config.powerup_points,
@@ -276,7 +271,7 @@ def demo():
     manager = CollectibleManager(config)
     
     # Manual spawning
-    manager.spawn(5, 5, CollectibleType.COIN)
+    manager.spawn(5, 5, CollectibleType.GEM)
     manager.spawn(7, 3, CollectibleType.GEM)
     manager.spawn(10, 8, CollectibleType.STAR)
     
