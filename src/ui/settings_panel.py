@@ -20,6 +20,7 @@ class SettingsValues:
     isi_ms: int = 125
     num_sequences: int = 10
     color_scheme: ColorScheme = ColorScheme.GRAY_WHITE
+    dullness: int = 5
     
     @property
     def soa_ms(self) -> int:
@@ -36,6 +37,7 @@ class SettingsValues:
             isi_ms=config.timing.isi_ms,
             num_sequences=config.timing.num_sequences,
             color_scheme=config.arrows.color_scheme,
+            dullness=config.game.dullness,
         )
     
     def apply_to_config(self, config: Config):
@@ -43,6 +45,7 @@ class SettingsValues:
         config.timing.isi_ms = self.isi_ms
         config.timing.num_sequences = self.num_sequences
         config.arrows.color_scheme = self.color_scheme
+        config.game.dullness = self.dullness
 
 
 class PixelColors:
@@ -406,7 +409,7 @@ class SettingsPanel:
         
         # BIGGER panel size
         self.panel_width = 950
-        self.panel_height = 850
+        self.panel_height = 950
         self.panel_rect = pygame.Rect(
             (screen_width - self.panel_width) // 2, 
             (screen_height - self.panel_height) // 2, 
@@ -461,6 +464,13 @@ class SettingsPanel:
             1, 20, self._values.num_sequences, 1, 
             "Sequences per Selection", "{:.0f}", self.label_font
         )
+        y += 110
+        
+        self.dullness_slider = PixelSlider(
+            pygame.Rect(x, y, width, 90), 
+            1, 5, self._values.dullness, 1, 
+            "Game Dullness (Arrows Stand Out)", "{:.0f}", self.label_font
+        )
         y += 130
         
         color_scheme_names = {
@@ -501,7 +511,8 @@ class SettingsPanel:
             flash_duration_ms=values.flash_duration_ms, 
             isi_ms=values.isi_ms, 
             num_sequences=values.num_sequences, 
-            color_scheme=values.color_scheme
+            color_scheme=values.color_scheme,
+            dullness=values.dullness
         )
         self._update_ui_from_values()
         
@@ -512,12 +523,15 @@ class SettingsPanel:
         self.isi_slider._update_handle_position()
         self.sequences_slider.value = self._values.num_sequences
         self.sequences_slider._update_handle_position()
+        self.dullness_slider.value = self._values.dullness
+        self.dullness_slider._update_handle_position()
         self.color_dropdown.value = self._values.color_scheme
         
     def _update_values_from_ui(self):
         self._values.flash_duration_ms = int(self.flash_slider.value)
         self._values.isi_ms = int(self.isi_slider.value)
         self._values.num_sequences = int(self.sequences_slider.value)
+        self._values.dullness = int(self.dullness_slider.value)
         self._values.color_scheme = self.color_dropdown.value
         
     def set_callbacks(self, on_apply=None, on_cancel=None):
@@ -550,6 +564,7 @@ class SettingsPanel:
         self.flash_slider.handle_event(event)
         self.isi_slider.handle_event(event)
         self.sequences_slider.handle_event(event)
+        self.dullness_slider.handle_event(event)
         self.color_dropdown.handle_event(event)
         self._update_values_from_ui()
         
@@ -641,6 +656,7 @@ class SettingsPanel:
         self.flash_slider.draw(screen)
         self.isi_slider.draw(screen)
         self.sequences_slider.draw(screen)
+        self.dullness_slider.draw(screen)
         self.color_dropdown.draw(screen)
         
         # Info box

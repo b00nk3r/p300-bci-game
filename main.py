@@ -276,6 +276,9 @@ class Application:
             on_item_collected=self._on_item_collected,
         )
         
+        # Set initial dullness from config
+        self.game_manager.set_dullness(self.config.game.dullness)
+        
         # Start the game
         self.game_manager.start_game()
         
@@ -466,6 +469,7 @@ class Application:
         print(f"  Flash: {values.flash_duration_ms}ms")
         print(f"  ISI: {values.isi_ms}ms")
         print(f"  Sequences: {values.num_sequences}")
+        print(f"  Dullness: {values.dullness}")
         print(f"  Color: {values.color_scheme.name}")
         print(f"  SOA: {values.soa_ms}ms ({values.flash_rate_hz:.1f}Hz)")
         
@@ -475,6 +479,10 @@ class Application:
         # Reinitialize arrow manager with new settings
         self.arrow_manager.shutdown()
         self._init_arrow_manager()
+        
+        # Update game manager dullness
+        if self.game_manager:
+            self.game_manager.set_dullness(self.config.game.dullness)
         
     def _on_settings_cancel(self):
         """Called when settings are cancelled"""
