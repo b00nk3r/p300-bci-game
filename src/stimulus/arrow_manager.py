@@ -48,33 +48,99 @@ class TriggerManager:
     - file: Write to text file (for MATLAB to read)
     - lsl: Lab Streaming Layer (real-time)
     - serial: Serial port
+    
+    Each session creates a separate file with timestamp in the filename.
     """
     
     def __init__(self, config: TriggerConfig):
         self.config = config
         self._file = None
         self._start_time: float = 0.0
+        self._session_filepath: Optional[Path] = None
         
-    def start_session(self):
-        """Start a new recording session"""
+    def start_session(
+        self,
+        flash_duration_ms: Optional[int] = None,
+        isi_ms: Optional[int] = None,
+        soa_ms: Optional[int] = None,
+        num_sequences: Optional[int] = None,
+        inter_sequence_pause_ms: Optional[int] = None,
+        flash_pattern: Optional[str] = None,
+        color_scheme: Optional[str] = None,
+        flash_rate_hz: Optional[float] = None,
+    ):
+        """
+        Start a new recording session with unique filename.
+        
+        Args:
+            flash_duration_ms: Flash duration in milliseconds
+            isi_ms: Inter-stimulus interval in milliseconds
+            soa_ms: Stimulus onset asynchrony in milliseconds
+            num_sequences: Number of sequences per selection
+            inter_sequence_pause_ms: Pause between sequences in milliseconds
+            flash_pattern: Flash pattern (RANDOM or SEQUENTIAL)
+            color_scheme: Color scheme name
+            flash_rate_hz: Flash rate in Hz
+        """
         self._start_time = time.perf_counter()
         
         if self.config.method == "file":
             # Ensure directory exists
-            self.config.trigger_file.parent.mkdir(parents=True, exist_ok=True)
+            output_dir = self.config.trigger_file.parent
+            output_dir.mkdir(parents=True, exist_ok=True)
             
-            # Open file (append mode)
-            self._file = open(self.config.trigger_file, 'a')
-            self._file.write(f"# Session started at {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-            self._file.write("# timestamp_ms, trigger_code, label\n")
+            # Create unique filename with timestamp
+            timestamp = time.strftime('%Y%m%d_%H%M%S')
+            filename = f"triggers_{timestamp}.txt"
+            self._session_filepath = output_dir / filename
+            
+            # Open new file for this session
+            self._file = open(self._session_filepath, 'w')
+            self._file.write("=" * 70 + "\n")
+            self._file.write("P300 BCI TRIGGER LOG\n")
+            self._file.write("=" * 70 + "\n\n")
+            
+            # Session info
+            self._file.write(f"Session started: {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+            
+            # Session parameters
+            self._file.write("SESSION PARAMETERS\n")
+            self._file.write("-" * 40 + "\n")
+            if flash_duration_ms is not None:
+                self._file.write(f"Flash Duration:      {flash_duration_ms} ms\n")
+            if isi_ms is not None:
+                self._file.write(f"ISI:                 {isi_ms} ms\n")
+            if soa_ms is not None:
+                self._file.write(f"SOA:                 {soa_ms} ms\n")
+            if flash_rate_hz is not None:
+                self._file.write(f"Flash Rate:          {flash_rate_hz:.2f} Hz\n")
+            if num_sequences is not None:
+                self._file.write(f"Num Sequences:       {num_sequences}\n")
+            if inter_sequence_pause_ms is not None:
+                self._file.write(f"Inter-Seq Pause:     {inter_sequence_pause_ms} ms\n")
+            if flash_pattern is not None:
+                self._file.write(f"Flash Pattern:       {flash_pattern}\n")
+            if color_scheme is not None:
+                self._file.write(f"Color Scheme:        {color_scheme}\n")
+            
+            self._file.write("\n")
+            self._file.write("TRIGGER EVENTS\n")
+            self._file.write("-" * 40 + "\n")
+            self._file.write("Format: timestamp_ms, trigger_code, label\n\n")
             self._file.flush()
             
     def stop_session(self):
         """End the recording session"""
         if self._file:
-            self._file.write(f"# Session ended\n\n")
+            self._file.write(f"\n")
+            self._file.write("=" * 70 + "\n")
+            self._file.write(f"Session ended: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            self._file.write("=" * 70 + "\n")
             self._file.close()
             self._file = None
+            if self._session_filepath:
+                print(f"Triggers saved: {self._session_filepath}")
+            self._session_filepath = None
             
     def send(self, code: int, label: str = ""):
         """
@@ -194,11 +260,12 @@ class ArrowManager:
             screen_height: Display height in pixels
         """
         self.renderer.initialize(screen_width, screen_height)
-        self.triggers.start_session()
         
     def shutdown(self):
         """Clean up resources"""
-        self.triggers.stop_session()
+        # Close any active trigger session
+        if self.triggers._file:
+            self.triggers.stop_session()
         
     def set_callbacks(
         self,
@@ -231,6 +298,18 @@ class ArrowManager:
         self._selected_direction = None
         self._selection_start_time = time.perf_counter()
         
+        # Start new trigger session (creates new file with parameters)
+        self.triggers.start_session(
+            flash_duration_ms=self.config.timing.flash_duration_ms,
+            isi_ms=self.config.timing.isi_ms,
+            soa_ms=self.config.timing.soa_ms,
+            num_sequences=self.config.timing.num_sequences,
+            inter_sequence_pause_ms=self.config.timing.inter_sequence_pause_ms,
+            flash_pattern=self.config.timing.flash_pattern.name,
+            color_scheme=self.config.arrows.color_scheme.name,
+            flash_rate_hz=self.config.timing.flash_rate_hz,
+        )
+        
         # Send trial start trigger
         self.triggers.send_trial_start()
         
@@ -250,8 +329,9 @@ class ArrowManager:
         self.timing.stop()
         self._flash_states = {d: False for d in Direction.all()}
         
-        # Send trial end trigger
+        # Send trial end trigger and close session
         self.triggers.send_trial_end()
+        self.triggers.stop_session()
         
         self._set_state(SelectionState.IDLE)
         
@@ -376,6 +456,9 @@ class ArrowManager:
                 'acceptable': self.timing.stats.is_acceptable,
             }
         )
+        
+        # Close trigger session
+        self.triggers.stop_session()
         
         # Reset state
         self._flash_states = {d: False for d in Direction.all()}
