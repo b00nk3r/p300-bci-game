@@ -192,7 +192,7 @@ class Application:
         
     def _init_session_logger(self):
         """Initialize the session logger for data recording"""
-        self.session_logger = SessionLogger(output_dir="sessions")
+        self.session_logger = SessionLogger(output_dir="data/sessions")
         
     def _init_settings_panel(self):
         """Initialize the settings panel"""
@@ -415,7 +415,7 @@ class Application:
             # Cancel session if stopped early
             if self.session_logger and self.session_logger.is_active:
                 self.session_logger.cancel_session()
-            print("Selection stopped")
+            print("Selection stopped (session not saved)")
         else:
             # Start session logging before starting selection
             if self.session_logger:
