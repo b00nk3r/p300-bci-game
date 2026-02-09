@@ -159,7 +159,10 @@ class GameManager:
             self.config.cell_size = min(cell_w, cell_h, 40)  # Cap at 40px
             
         # Create renderer
-        render_config = RenderConfig(cell_size=self.config.cell_size)
+        render_config = RenderConfig(
+            cell_size=self.config.cell_size,
+            dullness=5  # Will be updated from config later
+        )
         self.renderer = GameRenderer(render_config)
         
         # Create collectible manager
@@ -504,6 +507,25 @@ class GameManager:
         if self.renderer:
             return self.renderer.get_maze_rect()
         return None
+    
+    def set_dullness(self, dullness: int):
+        """
+        Update the dullness level and recreate renderer.
+        
+        Args:
+            dullness: Dullness level (1-5)
+        """
+        if self.renderer and hasattr(self.renderer, 'config'):
+            # Update renderer config
+            self.renderer.config.dullness = dullness
+            # Force recreation of textures
+            if hasattr(self, '_screen_width') and self.maze:
+                # Recreate textures with new dullness
+                cell_size = self.renderer.config.cell_size
+                self.renderer._create_pixel_textures(cell_size)
+                self.renderer._create_scoreboard_texture(cell_size)
+                # Mark maze cache as dirty to force redraw
+                self.renderer.invalidate_maze_cache()
 
 
 # =============================================================================

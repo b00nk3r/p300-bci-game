@@ -199,6 +199,10 @@ class GameConfig:
     # Player
     player_size: int = 30
     move_duration_ms: int = 300
+    
+    # Dullness level (1-5): higher = duller game elements, arrows stand out more
+    # 5 = current brightness, 1 = very dull
+    dullness: int = 5
 
 
 @dataclass

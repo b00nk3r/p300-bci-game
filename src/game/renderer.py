@@ -39,25 +39,77 @@ class RenderConfig:
     # Cell size
     cell_size: int = 32
     
-    # Maze colors (much duller grayscale to make arrows stand out)
-    wall_color: Tuple[int, int, int] = (30, 30, 30)
-    path_color: Tuple[int, int, int] = (18, 18, 18)
-    start_color: Tuple[int, int, int] = (25, 25, 25)
-    goal_color: Tuple[int, int, int] = (32, 32, 32)
+    # Dullness level (1-5): 5 = normal, 1 = very dull
+    dullness: int = 5
     
-    # Player colors (much duller grayscale)
-    player_color: Tuple[int, int, int] = (70, 70, 70)
-    player_outline: Tuple[int, int, int] = (50, 50, 50)
-    player_direction_color: Tuple[int, int, int] = (80, 80, 80)
+    # Base colors at full brightness (dullness = 5)
+    # These will be darkened based on dullness level
+    _base_wall_color: Tuple[int, int, int] = (30, 30, 30)
+    _base_path_color: Tuple[int, int, int] = (18, 18, 18)
+    _base_start_color: Tuple[int, int, int] = (25, 25, 25)
+    _base_goal_color: Tuple[int, int, int] = (32, 32, 32)
+    _base_player_color: Tuple[int, int, int] = (70, 70, 70)
+    _base_player_outline: Tuple[int, int, int] = (50, 50, 50)
+    _base_player_direction_color: Tuple[int, int, int] = (80, 80, 80)
+    _base_gem_color: Tuple[int, int, int] = (60, 60, 60)
+    _base_star_color: Tuple[int, int, int] = (80, 80, 80)
+    _base_ui_bg_color: Tuple[int, int, int] = (15, 15, 15)
+    _base_ui_text_color: Tuple[int, int, int] = (70, 70, 70)
+    _base_ui_highlight_color: Tuple[int, int, int] = (90, 90, 90)
     
-    # Collectible colors (much duller gray shades)
-    gem_color: Tuple[int, int, int] = (60, 60, 60)
-    star_color: Tuple[int, int, int] = (80, 80, 80)
+    def _apply_dullness(self, color: Tuple[int, int, int]) -> Tuple[int, int, int]:
+        """Apply dullness factor to a color. Lower dullness = darker colors."""
+        # Dullness 5 = 1.0 (100%), Dullness 1 = 0.2 (20%)
+        factor = self.dullness / 5.0
+        return tuple(int(c * factor) for c in color)
     
-    # UI colors (much duller grayscale)
-    ui_bg_color: Tuple[int, int, int] = (15, 15, 15)
-    ui_text_color: Tuple[int, int, int] = (70, 70, 70)
-    ui_highlight_color: Tuple[int, int, int] = (90, 90, 90)
+    @property
+    def wall_color(self) -> Tuple[int, int, int]:
+        return self._apply_dullness(self._base_wall_color)
+    
+    @property
+    def path_color(self) -> Tuple[int, int, int]:
+        return self._apply_dullness(self._base_path_color)
+    
+    @property
+    def start_color(self) -> Tuple[int, int, int]:
+        return self._apply_dullness(self._base_start_color)
+    
+    @property
+    def goal_color(self) -> Tuple[int, int, int]:
+        return self._apply_dullness(self._base_goal_color)
+    
+    @property
+    def player_color(self) -> Tuple[int, int, int]:
+        return self._apply_dullness(self._base_player_color)
+    
+    @property
+    def player_outline(self) -> Tuple[int, int, int]:
+        return self._apply_dullness(self._base_player_outline)
+    
+    @property
+    def player_direction_color(self) -> Tuple[int, int, int]:
+        return self._apply_dullness(self._base_player_direction_color)
+    
+    @property
+    def gem_color(self) -> Tuple[int, int, int]:
+        return self._apply_dullness(self._base_gem_color)
+    
+    @property
+    def star_color(self) -> Tuple[int, int, int]:
+        return self._apply_dullness(self._base_star_color)
+    
+    @property
+    def ui_bg_color(self) -> Tuple[int, int, int]:
+        return self._apply_dullness(self._base_ui_bg_color)
+    
+    @property
+    def ui_text_color(self) -> Tuple[int, int, int]:
+        return self._apply_dullness(self._base_ui_text_color)
+    
+    @property
+    def ui_highlight_color(self) -> Tuple[int, int, int]:
+        return self._apply_dullness(self._base_ui_highlight_color)
     
     # Sizes
     player_size_ratio: float = 1.0   # Player fills entire cell
@@ -532,7 +584,10 @@ class GameRenderer:
             
             x_offset = (width - new_width) // 2
             y_offset = height - new_height  # Align to bottom
-            self._scoreboard_surface.blit(scaled, (x_offset, y_offset))
+            
+            # Apply dullness to scoreboard
+            dulled_scaled = self._apply_dullness_to_surface(scaled)
+            self._scoreboard_surface.blit(dulled_scaled, (x_offset, y_offset))
             
             # Store board dimensions for text positioning
             # Move text more to the right to avoid frame border
@@ -559,6 +614,28 @@ class GameRenderer:
         
         # Create pixel art font for scoreboard
         self._create_pixel_font(pixel_size)
+    
+    def _apply_dullness_to_surface(self, surface: pygame.Surface) -> pygame.Surface:
+        """Apply dullness factor to a surface by darkening all pixels."""
+        # Create a copy to avoid modifying the original
+        dulled = surface.copy()
+        
+        # Calculate dullness factor
+        factor = self.config.dullness / 5.0
+        
+        # Apply to all pixels
+        width, height = dulled.get_size()
+        for y in range(height):
+            for x in range(width):
+                r, g, b, a = dulled.get_at((x, y))
+                # Only darken non-transparent pixels
+                if a > 0:
+                    new_r = int(r * factor)
+                    new_g = int(g * factor)
+                    new_b = int(b * factor)
+                    dulled.set_at((x, y), (new_r, new_g, new_b, a))
+        
+        return dulled
     
     def _create_pixel_font(self, pixel_size: int):
         """Create pixel art characters for scoreboard text"""
@@ -852,16 +929,19 @@ class GameRenderer:
             y_offset = (size - new_height) // 2
             final_sprite.blit(scaled_sprite, (x_offset, y_offset))
             
+            # Apply dullness to the sprite
+            dulled_sprite = self._apply_dullness_to_surface(final_sprite)
+            
             # Use the same sprite for all directions (the character looks good facing forward)
             directions = ['up', 'down', 'left', 'right', 'idle']
             for direction in directions:
                 # For left/right, we could flip the sprite, but the Viking looks symmetric
                 if direction == 'left':
                     # Flip horizontally for left direction
-                    flipped = pygame.transform.flip(final_sprite, True, False)
+                    flipped = pygame.transform.flip(dulled_sprite, True, False)
                     self._player_sprites[direction] = flipped
                 else:
-                    self._player_sprites[direction] = final_sprite.copy()
+                    self._player_sprites[direction] = dulled_sprite.copy()
             
             print(f"Loaded Viking sprite from {sprite_path}, scaled to {size}x{size}")
         else:
@@ -1020,9 +1100,12 @@ class GameRenderer:
         y_offset = (target_size - new_height) // 2
         final.blit(scaled, (x_offset, y_offset))
         
+        # Apply dullness
+        dulled_final = self._apply_dullness_to_surface(final)
+        
         print(f"  Processed {filename}: {width}x{height} -> {new_width}x{new_height} (target {target_size})")
         
-        return final
+        return dulled_final
         
     def grid_to_screen(self, grid_x: float, grid_y: float) -> Tuple[int, int]:
         """Convert grid coordinates to screen coordinates"""
@@ -1298,8 +1381,10 @@ class GameRenderer:
             text_x = board_x + 10
             text_y = board_y + 10
         
-        # Chalk color (grayscale)
-        chalk_color = (180, 180, 180)
+        # Chalk color (grayscale) - apply dullness
+        base_chalk = (180, 180, 180)
+        factor = self.config.dullness / 5.0
+        chalk_color = tuple(int(c * factor) for c in base_chalk)
         
         # Line spacing based on pixel size (5x7 font + spacing)
         line_height = 7 * pixel_size + pixel_size * 2
