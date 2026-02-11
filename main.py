@@ -223,21 +223,25 @@ class Application:
         # Larger cells = fewer cells = simpler maze (easier to play)
         # Smaller cells = more cells = complex maze (harder to play)
         #
-        # With 192px cells and the arrow panel (~1100×1160), we use
-        # CORRIDOR MODE instead of complex maze generation. This creates
-        # simple paths around the arrow panel that are easy to navigate
-        # with BCI control.
+        # Fixed grid target:
+        # - 10 columns x 6 rows
+        # - Larger cells for easier play
         #
-        # To adjust: change cell_size below
+        # To adjust: change target_*_cells below
         # =================================================================
         
-        cell_size = 160  # <-- CHANGE THIS TO ADJUST MAZE SIZE
+        target_width_cells = 10
+        target_height_cells = 6
+        cell_size = min(
+            DESIGN_WIDTH // target_width_cells,
+            DESIGN_HEIGHT // target_height_cells
+        )
         
         # Calculate maze dimensions to fill screen
         margin = 0  # No margin - fill entire screen
         
-        maze_width_cells = (DESIGN_WIDTH - margin * 2) // cell_size
-        maze_height_cells = (DESIGN_HEIGHT - margin * 2) // cell_size
+        maze_width_cells = target_width_cells
+        maze_height_cells = target_height_cells
         
         # For corridor mode, we don't need odd dimensions
         # Use corridor mode for large cells (simpler paths)
@@ -249,8 +253,9 @@ class Application:
             max_maze_width=maze_width_cells,  # Don't grow beyond screen
             max_maze_height=maze_height_cells,
             maze_growth_per_level=0,  # Keep same size, just regenerate
-            base_collectibles=8,  # Fewer collectibles for simpler corridor layout
-            collectibles_per_level=2,
+            base_collectibles=5,  # Fixed donut count per level
+            collectibles_per_level=0,
+            max_collectibles=5,
             cell_size=cell_size,
             use_corridors=use_corridors,  # Use corridor mode for large cells
         )

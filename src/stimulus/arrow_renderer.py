@@ -102,15 +102,10 @@ class ArrowRenderer:
             
     def _create_panel_surface(self):
         """
-        Create the plus-shaped panel surface for arrows.
-        
-        The plus shape consists of:
-        - A vertical strip (~200px wide) connecting Up and Down arrows
-        - A horizontal strip (~200px tall) connecting Left and Right arrows
-        - Semi-transparent dark overlay (~60% opacity)
-        
-        Drawn as a single polygon to ensure consistent edges.
-        Border drawn as individual 1px rectangles for consistent thickness.
+        Create a full rectangular black panel behind arrows.
+
+        This keeps arrow positions/sizes unchanged while making the entire
+        center square area uniformly black.
         """
         positions = self._positions
         
@@ -120,136 +115,33 @@ class ArrowRenderer:
         panel_size = self.arrow_config.panel_size  # 200px
         half_panel = panel_size // 2
         
-        # Calculate the bounding box that contains the entire plus shape
+        # Calculate panel bounds around the arrow cluster.
+        # Slightly expand to reduce the visible border gap against the game cutout.
+        panel_expand_px = 20
         left = positions[Direction.LEFT][0] - half_panel
         right = positions[Direction.RIGHT][0] + half_panel
         top = positions[Direction.UP][1] - half_panel
         bottom = positions[Direction.DOWN][1] + half_panel
+
+        left -= panel_expand_px
+        right += panel_expand_px
+        top -= panel_expand_px
+        bottom += panel_expand_px
         
         width = right - left
         height = bottom - top
         
-        # Store the overall bounding rect (for reference, but actual shape is plus)
+        # Store the overall bounding rect.
         self._panel_rect = pygame.Rect(left, top, width, height)
         
-        # Create surface for the plus shape
+        # Create a full opaque black rectangle for the panel.
         self._panel_surface = pygame.Surface((width, height), pygame.SRCALPHA)
-        
-        panel_color_with_alpha = (*self._panel_color, self.arrow_config.panel_alpha)
-        border_color = tuple(min(255, c + 30) for c in self._panel_color) + (255,)  # Full opacity border
-        
-        # Get center position relative to the surface
-        cx = positions[Direction.UP][0] - left  # Center X in surface coords
-        cy = positions[Direction.LEFT][1] - top  # Center Y in surface coords
-        
-        # Calculate the boundaries of vertical and horizontal strips
-        vert_left = cx - half_panel
-        vert_right = cx + half_panel
-        vert_top = 0
-        vert_bottom = height
-        
-        horiz_left = 0
-        horiz_right = width
-        horiz_top = cy - half_panel
-        horiz_bottom = cy + half_panel
-        
-        # Define the 12 corner points of the plus shape (clockwise from top-left)
-        points = [
-            (vert_left, vert_top),          # 1. Top-left of vertical strip
-            (vert_right, vert_top),         # 2. Top-right of vertical strip
-            (vert_right, horiz_top),        # 3. Inner corner (top-right)
-            (horiz_right, horiz_top),       # 4. Right end of horizontal (top)
-            (horiz_right, horiz_bottom),    # 5. Right end of horizontal (bottom)
-            (vert_right, horiz_bottom),     # 6. Inner corner (bottom-right)
-            (vert_right, vert_bottom),      # 7. Bottom-right of vertical strip
-            (vert_left, vert_bottom),       # 8. Bottom-left of vertical strip
-            (vert_left, horiz_bottom),      # 9. Inner corner (bottom-left)
-            (horiz_left, horiz_bottom),     # 10. Left end of horizontal (bottom)
-            (horiz_left, horiz_top),        # 11. Left end of horizontal (top)
-            (vert_left, horiz_top),         # 12. Inner corner (top-left)
-        ]
-        
-        # Draw the plus shape as a single filled polygon (no overlap issues)
-        pygame.draw.polygon(self._panel_surface, panel_color_with_alpha, points)
-        
-        # Pixel art style border - chunky 4px with highlight/shadow effect
-        border_thickness = 4
-        
-        # Border colors for pixel art 3D effect (derived from panel color, same base)
-        border_light = tuple(min(255, c + 50) for c in self._panel_color) + (255,)
-        border_dark = tuple(max(0, c - 10) for c in self._panel_color) + (255,)
-        border_mid = border_color  # Original border color
-        
-        # Helper function to draw a chunky pixel art border segment
-        def draw_pixel_border_segment(x1, y1, x2, y2, is_top_or_left=True):
-            """Draw a chunky pixel art border with highlight/shadow"""
-            if x1 == x2:  # Vertical line
-                rect_x = x1 - border_thickness // 2
-                rect_y = min(y1, y2)
-                rect_w = border_thickness
-                rect_h = abs(y2 - y1)
-                # Main border
-                pygame.draw.rect(self._panel_surface, border_mid, (rect_x, rect_y, rect_w, rect_h))
-                # Highlight on left edge (if left side of shape)
-                if is_top_or_left:
-                    pygame.draw.rect(self._panel_surface, border_light, (rect_x, rect_y, 1, rect_h))
-                # Shadow on right edge
-                else:
-                    pygame.draw.rect(self._panel_surface, border_dark, (rect_x + rect_w - 1, rect_y, 1, rect_h))
-            else:  # Horizontal line
-                rect_x = min(x1, x2)
-                rect_y = y1 - border_thickness // 2
-                rect_w = abs(x2 - x1)
-                rect_h = border_thickness
-                # Main border
-                pygame.draw.rect(self._panel_surface, border_mid, (rect_x, rect_y, rect_w, rect_h))
-                # Highlight on top edge (if top of shape)
-                if is_top_or_left:
-                    pygame.draw.rect(self._panel_surface, border_light, (rect_x, rect_y, rect_w, 1))
-                # Shadow on bottom edge
-                else:
-                    pygame.draw.rect(self._panel_surface, border_dark, (rect_x, rect_y + rect_h - 1, rect_w, 1))
-        
-        # Draw all 12 border segments with pixel art shading
-        # Top of vertical strip (horizontal) - top edge, light
-        draw_pixel_border_segment(vert_left, vert_top, vert_right, vert_top, True)
-        # Right side of vertical strip, upper part (vertical) - right edge, dark
-        draw_pixel_border_segment(vert_right, vert_top, vert_right, horiz_top, False)
-        # Top of horizontal strip, right part (horizontal) - top edge, light
-        draw_pixel_border_segment(vert_right, horiz_top, horiz_right, horiz_top, True)
-        # Right side of horizontal strip (vertical) - right edge, dark
-        draw_pixel_border_segment(horiz_right, horiz_top, horiz_right, horiz_bottom, False)
-        # Bottom of horizontal strip, right part (horizontal) - bottom edge, dark
-        draw_pixel_border_segment(horiz_right, horiz_bottom, vert_right, horiz_bottom, False)
-        # Right side of vertical strip, lower part (vertical) - right edge, dark
-        draw_pixel_border_segment(vert_right, horiz_bottom, vert_right, vert_bottom, False)
-        # Bottom of vertical strip (horizontal) - bottom edge, dark
-        draw_pixel_border_segment(vert_right, vert_bottom, vert_left, vert_bottom, False)
-        # Left side of vertical strip, lower part (vertical) - left edge, light
-        draw_pixel_border_segment(vert_left, vert_bottom, vert_left, horiz_bottom, True)
-        # Bottom of horizontal strip, left part (horizontal) - bottom edge, dark
-        draw_pixel_border_segment(vert_left, horiz_bottom, horiz_left, horiz_bottom, False)
-        # Left side of horizontal strip (vertical) - left edge, light
-        draw_pixel_border_segment(horiz_left, horiz_bottom, horiz_left, horiz_top, True)
-        # Top of horizontal strip, left part (horizontal) - top edge, light
-        draw_pixel_border_segment(horiz_left, horiz_top, vert_left, horiz_top, True)
-        # Left side of vertical strip, upper part (vertical) - left edge, light
-        draw_pixel_border_segment(vert_left, horiz_top, vert_left, vert_top, True)
-        
-        # Store plus-shape geometry for hit testing (in screen coordinates)
+        self._panel_surface.fill((0, 0, 0, 255))
+
+        # Keep compatibility for callers that expect this attribute.
         self._plus_shape = {
-            'vertical': pygame.Rect(
-                positions[Direction.UP][0] - half_panel,
-                positions[Direction.UP][1] - half_panel,
-                panel_size,
-                positions[Direction.DOWN][1] - positions[Direction.UP][1] + panel_size
-            ),
-            'horizontal': pygame.Rect(
-                positions[Direction.LEFT][0] - half_panel,
-                positions[Direction.LEFT][1] - half_panel,
-                positions[Direction.RIGHT][0] - positions[Direction.LEFT][0] + panel_size,
-                panel_size
-            ),
+            'vertical': self._panel_rect.copy(),
+            'horizontal': self._panel_rect.copy(),
         }
     
     def get_plus_shape(self) -> dict:
