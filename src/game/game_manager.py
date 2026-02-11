@@ -220,8 +220,8 @@ class GameManager:
         
         self.maze = Maze(maze_config)
         
-        # Calculate plus-shaped forbidden zone from arrow positions
-        # The plus shape gives more game area in the corners
+        # Calculate rectangular forbidden zone from arrow positions
+        # to keep the full center arrow area blocked/black.
         if self._arrow_panel_rect and hasattr(self, '_arrow_positions') and self._arrow_positions:
             cell_size = self.config.cell_size
             panel_size = 200  # Arrow panel size (should match ArrowConfig)
@@ -241,45 +241,23 @@ class GameManager:
             right_pos = self._arrow_positions.get(Direction.RIGHT)
             
             if up_pos and down_pos and left_pos and right_pos:
-                # Calculate vertical strip (just the 200px wide column from Up to Down)
-                # This should be narrow, not the full height
-                vert_center_x = up_pos[0]
-                vert_left_px = vert_center_x - half_panel - offset_x
-                vert_right_px = vert_center_x + half_panel - offset_x
-                vert_top_px = up_pos[1] - half_panel - offset_y
-                vert_bottom_px = down_pos[1] + half_panel - offset_y
-                
-                # Calculate horizontal strip (just the 200px tall row from Left to Right)
-                horiz_center_y = left_pos[1]
-                horiz_left_px = left_pos[0] - half_panel - offset_x
-                horiz_right_px = right_pos[0] + half_panel - offset_x
-                horiz_top_px = horiz_center_y - half_panel - offset_y
-                horiz_bottom_px = horiz_center_y + half_panel - offset_y
-                
-                # Convert to grid coordinates (no extra padding - just cover the panels)
-                padding = 0
-                
-                # Vertical strip grid coords
-                vx1 = max(0, int(vert_left_px // cell_size) - padding)
-                vy1 = max(0, int(vert_top_px // cell_size) - padding)
-                vx2 = min(width, int((vert_right_px + cell_size - 1) // cell_size) + padding)
-                vy2 = min(height, int((vert_bottom_px + cell_size - 1) // cell_size) + padding)
-                
-                # Horizontal strip grid coords
-                hx1 = max(0, int(horiz_left_px // cell_size) - padding)
-                hy1 = max(0, int(horiz_top_px // cell_size) - padding)
-                hx2 = min(width, int((horiz_right_px + cell_size - 1) // cell_size) + padding)
-                hy2 = min(height, int((horiz_bottom_px + cell_size - 1) // cell_size) + padding)
-                
-                # Set plus-shaped forbidden zone
-                self.maze.set_forbidden_plus(
-                    vertical=(vx1, vy1, vx2 - vx1, vy2 - vy1),
-                    horizontal=(hx1, hy1, hx2 - hx1, hy2 - hy1)
-                )
-                
-                print(f"  Plus-shaped forbidden zone:")
-                print(f"    Vertical strip: ({vx1},{vy1}) size {vx2-vx1}×{vy2-vy1}")
-                print(f"    Horizontal strip: ({hx1},{hy1}) size {hx2-hx1}×{hy2-hy1}")
+                # Rectangle bounds from outer edges of all arrow panels.
+                left_px = left_pos[0] - half_panel - offset_x
+                right_px = right_pos[0] + half_panel - offset_x
+                top_px = up_pos[1] - half_panel - offset_y
+                bottom_px = down_pos[1] + half_panel - offset_y
+
+                # Convert rectangle bounds to grid coordinates.
+                rx1 = max(0, int(left_px // cell_size))
+                ry1 = max(0, int(top_px // cell_size))
+                rx2 = min(width, int((right_px + cell_size - 1) // cell_size))
+                ry2 = min(height, int((bottom_px + cell_size - 1) // cell_size))
+
+                # Block the full rectangular center zone.
+                self.maze.set_forbidden_zone((rx1, ry1, rx2 - rx1, ry2 - ry1))
+
+                print("  Rectangular forbidden zone:")
+                print(f"    Rect: ({rx1},{ry1}) size {rx2-rx1}×{ry2-ry1}")
         
         # Generate maze
         self.maze.generate()

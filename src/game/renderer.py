@@ -998,16 +998,13 @@ class GameRenderer:
     
     def _create_collectible_sprites(self, cell_size: int):
         """Load collectible sprites from image files - CS classroom themed"""
-        # Fixed size of 100x100 for collectibles
-        size = 100
-        
-        # Load Coffee Cup sprite (medium value - GEM type)
-        self._collectible_sprites['gem'] = self._load_collectible_image(
-            'coffee_cup.png', size)
-        
-        # Load Donut sprite (high value - STAR type)
-        self._collectible_sprites['star'] = self._load_collectible_image(
-            'donut.png', size)
+        # 25% smaller than the current donut size.
+        size = int(cell_size * 0.675)
+
+        # Donut-only collectibles: map both keys to the donut sprite as a safe fallback.
+        donut_sprite = self._load_collectible_image('donut.png', size)
+        self._collectible_sprites['star'] = donut_sprite
+        self._collectible_sprites['gem'] = donut_sprite
     
     def _load_collectible_image(self, filename: str, target_size: int) -> pygame.Surface:
         """Load a collectible image, make background transparent, and scale"""
@@ -1297,13 +1294,8 @@ class GameRenderer:
         # Get position (no animation offset - static items)
         screen_x, screen_y = self.grid_to_screen(item.x, item.y)
         
-        # Get the appropriate sprite
-        if item.type == CollectibleType.GEM:
-            sprite = self._collectible_sprites.get('gem')
-        elif item.type == CollectibleType.STAR:
-            sprite = self._collectible_sprites.get('star')
-        else:
-            sprite = self._collectible_sprites.get('gem')  # Default
+        # Donut-only rendering.
+        sprite = self._collectible_sprites.get('star')
         
         if sprite:
             # Center the sprite on the position

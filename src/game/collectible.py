@@ -57,7 +57,7 @@ class Collectible:
     """
     x: int
     y: int
-    type: CollectibleType = CollectibleType.GEM
+    type: CollectibleType = CollectibleType.STAR
     collected: bool = False
     
     # Animation state
@@ -136,7 +136,7 @@ class CollectibleManager:
         self._total_score = 0
         self._collected_count = 0
         
-    def spawn(self, x: int, y: int, type: CollectibleType = CollectibleType.GEM):
+    def spawn(self, x: int, y: int, type: CollectibleType = CollectibleType.STAR):
         """
         Spawn a collectible at position.
         
@@ -163,8 +163,7 @@ class CollectibleManager:
         """
         if type_weights is None:
             type_weights = {
-                CollectibleType.GEM: 0.7,   # Coffee cup - more common
-                CollectibleType.STAR: 0.3,  # Donut - less common
+                CollectibleType.STAR: 1.0,  # Donut only
             }
             
         # Normalize weights
@@ -185,7 +184,7 @@ class CollectibleManager:
             import random
             r = random.random() * total_weight
             cumulative = 0
-            chosen_type = CollectibleType.GEM
+            chosen_type = CollectibleType.STAR
             
             for ctype, weight in type_weights.items():
                 cumulative += weight

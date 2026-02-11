@@ -104,11 +104,11 @@ class ArrowConfig:
     - Panel size: 200×200 px per arrow
     - Arrow-to-panel-edge margin: 50px (because 200 panel, 100 arrow)
     """
-    size: int = 100                   # Arrow bounding box size in pixels
+    size: int = 150                   # Arrow bounding box size in pixels
     
     # Triangle dimensions inside the bounding box
-    triangle_length: int = 100        # Length in pointing direction
-    triangle_base: int = 100          # Base width perpendicular to direction
+    triangle_length: int = 150        # Length in pointing direction
+    triangle_base: int = 150          # Base width perpendicular to direction
     
     # Color scheme
     color_scheme: ColorScheme = ColorScheme.GRAY_WHITE
