@@ -461,7 +461,7 @@ class SettingsPanel:
         
         self.sequences_slider = PixelSlider(
             pygame.Rect(x, y, width, 90), 
-            1, 20, self._values.num_sequences, 1, 
+            1, 40, self._values.num_sequences, 1, 
             "Sequences per Selection", "{:.0f}", self.label_font
         )
         y += 110

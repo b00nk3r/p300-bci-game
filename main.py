@@ -8,7 +8,7 @@ A Brain-Computer Interface game using P300 evoked potentials
 to control a maze character through flashing arrow stimuli.
 
 Controls:
-    SPACE  - Start/Stop BCI selection (arrow flashing)
+    SPACE  - Run one full calibration pass
     S      - Open settings panel (TODO)
     D      - Toggle debug overlay
     ESC    - Quit
@@ -25,6 +25,8 @@ Usage:
 import sys
 import argparse
 import time
+import random
+from enum import Enum, auto
 
 import pygame
 
@@ -40,6 +42,14 @@ from src.data.session_logger import SessionLogger
 # whatever window size the user requests.
 DESIGN_WIDTH = 3072
 DESIGN_HEIGHT = 1920
+
+
+class CalibrationStage(Enum):
+    """Stages for one full calibration run."""
+    IDLE = auto()
+    INSTRUCTION = auto()
+    FLASHING = auto()
+    BREAK = auto()
 
 
 class Application:
@@ -84,6 +94,23 @@ class Application:
         self.font_large = None
         self.font_medium = None
         self.font_small = None
+
+        # Data-recording / calibration run state
+        self.calibration_stage = CalibrationStage.IDLE
+        self.calibration_phase_order = []
+        self.calibration_phase_index = 0
+        self.calibration_stage_start_time = 0.0
+        self.calibration_run_start_time = 0.0
+
+        self.calibration_flash_states = {d: False for d in Direction.all()}
+        self.calibration_flash_plan = []
+        self.calibration_flash_index = 0
+        self.calibration_current_flash = None
+        self.calibration_current_flash_end_time = 0.0
+        self.calibration_next_flash_time = 0.0
+
+        self.calibration_instruction_ms = 2000
+        self.calibration_break_ms = 2000
         
     def initialize(self):
         """Initialize pygame and all components"""
@@ -314,7 +341,7 @@ class Application:
         print(f"  Sequences: {self.config.timing.num_sequences}")
         print()
         print("Controls:")
-        print("  SPACE  - Start/Stop BCI selection")
+        print("  SPACE  - Run one full calibration pass")
         print("  S      - Open settings panel")
         print("  D      - Toggle debug info")
         print("  R      - Restart current level")
@@ -369,9 +396,9 @@ class Application:
         if key == pygame.K_ESCAPE:
             self.running = False
             
-        # Toggle BCI selection
+        # Run one calibration pass
         elif key == pygame.K_SPACE:
-            self._toggle_selection()
+            self._start_calibration_run()
             
         # Toggle debug
         elif key == pygame.K_d:
@@ -413,27 +440,188 @@ class Application:
         elif key == pygame.K_RIGHT:
             self._manual_move(Direction.RIGHT)
             
-    def _toggle_selection(self):
-        """Start or stop BCI selection"""
+    def _is_calibration_active(self) -> bool:
+        """Whether a calibration run is currently active."""
+        return self.calibration_stage != CalibrationStage.IDLE
+
+    def _start_calibration_run(self):
+        """Start one full data-recording calibration run."""
+        if self._is_calibration_active():
+            print("Calibration already running")
+            return
+
+        # Keep behavior predictable if legacy selection is active.
         if self.arrow_manager.is_active:
             self.arrow_manager.stop_selection()
-            # Cancel session if stopped early
-            if self.session_logger and self.session_logger.is_active:
+
+        self.calibration_phase_order = Direction.all()
+        random.shuffle(self.calibration_phase_order)
+        self.calibration_phase_index = 0
+        self.calibration_run_start_time = time.perf_counter()
+
+        # Start one session for the whole 4-phase run.
+        if self.session_logger:
+            self.session_logger.start_session(
+                flash_duration_ms=self.config.timing.flash_duration_ms,
+                isi_ms=self.config.timing.isi_ms,
+                num_sequences=self.config.timing.num_sequences,
+                inter_sequence_pause_ms=0,
+                flash_pattern="RANDOM",
+                color_scheme=self.config.arrows.color_scheme.name,
+            )
+
+        self.arrow_manager.triggers.start_session(
+            flash_duration_ms=self.config.timing.flash_duration_ms,
+            isi_ms=self.config.timing.isi_ms,
+            soa_ms=self.config.timing.soa_ms,
+            num_sequences=self.config.timing.num_sequences,
+            inter_sequence_pause_ms=0,
+            flash_pattern="RANDOM",
+            color_scheme=self.config.arrows.color_scheme.name,
+            flash_rate_hz=self.config.timing.flash_rate_hz,
+        )
+        first_target = self.calibration_phase_order[self.calibration_phase_index]
+        self.arrow_manager.triggers.set_current_target(first_target)
+        self.arrow_manager.triggers.send_trial_start()
+
+        self._set_calibration_idle_arrows()
+        self._start_instruction_stage()
+        print("Calibration run started")
+
+    def _set_calibration_idle_arrows(self):
+        """Set all calibration arrows to non-flashing state."""
+        self.calibration_flash_states = {d: False for d in Direction.all()}
+        self.calibration_current_flash = None
+        self.calibration_current_flash_end_time = 0.0
+
+    def _start_instruction_stage(self):
+        """Start instruction display for current attended arrow."""
+        self.calibration_stage = CalibrationStage.INSTRUCTION
+        self.calibration_stage_start_time = time.perf_counter()
+        self._set_calibration_idle_arrows()
+
+        attended = self.calibration_phase_order[self.calibration_phase_index]
+        self.arrow_manager.triggers.set_current_target(attended)
+        print(
+            f"Phase {self.calibration_phase_index + 1}/4 - "
+            f"ATTEND {attended.value.upper()}"
+        )
+
+    def _start_flashing_stage(self):
+        """Start flashing stage for current attended arrow phase."""
+        self.calibration_stage = CalibrationStage.FLASHING
+        self.calibration_stage_start_time = time.perf_counter()
+        self._set_calibration_idle_arrows()
+
+        self.calibration_flash_plan = []
+        for _ in range(self.config.timing.num_sequences):
+            sequence_order = Direction.all()
+            random.shuffle(sequence_order)
+            self.calibration_flash_plan.extend(sequence_order)
+
+        self.calibration_flash_index = 0
+        self.calibration_next_flash_time = time.perf_counter()  # Start immediately
+
+    def _start_break_stage(self):
+        """Start blank/neutral break between attended-arrow phases."""
+        self.calibration_stage = CalibrationStage.BREAK
+        self.calibration_stage_start_time = time.perf_counter()
+        self.arrow_manager.triggers.set_current_target(None)
+        self._set_calibration_idle_arrows()
+
+    def _finish_calibration_run(self, cancelled: bool = False):
+        """Finalize calibration run, close logs, and return to idle."""
+        was_active = self._is_calibration_active()
+
+        self.calibration_stage = CalibrationStage.IDLE
+        self.calibration_phase_order = []
+        self.calibration_phase_index = 0
+        self.calibration_stage_start_time = 0.0
+        self.calibration_flash_plan = []
+        self.calibration_flash_index = 0
+        self.calibration_next_flash_time = 0.0
+        self._set_calibration_idle_arrows()
+
+        if was_active:
+            self.arrow_manager.triggers.set_current_target(None)
+            self.arrow_manager.triggers.send_trial_end()
+            self.arrow_manager.triggers.stop_session()
+
+        if self.session_logger and self.session_logger.is_active:
+            if cancelled:
                 self.session_logger.cancel_session()
-            print("Selection stopped (session not saved)")
+            else:
+                self.session_logger.end_session()
+
+        if cancelled:
+            print("Calibration run cancelled")
         else:
-            # Start session logging before starting selection
-            if self.session_logger:
-                self.session_logger.start_session(
-                    flash_duration_ms=self.config.timing.flash_duration_ms,
-                    isi_ms=self.config.timing.isi_ms,
-                    num_sequences=self.config.timing.num_sequences,
-                    inter_sequence_pause_ms=self.config.timing.inter_sequence_pause_ms,
-                    flash_pattern=self.config.timing.flash_pattern.name,
-                    color_scheme=self.config.arrows.color_scheme.name,
-                )
-            self.arrow_manager.start_selection()
-            print("Selection started - arrows flashing")
+            print("Calibration run complete - waiting for SPACE")
+
+    def _update_calibration_run(self):
+        """Advance the calibration run state machine."""
+        now = time.perf_counter()
+        elapsed_stage_ms = (now - self.calibration_stage_start_time) * 1000.0
+
+        if self.calibration_stage == CalibrationStage.INSTRUCTION:
+            if elapsed_stage_ms >= self.calibration_instruction_ms:
+                self._start_flashing_stage()
+            return
+
+        if self.calibration_stage == CalibrationStage.FLASHING:
+            self._update_calibration_flashing(now)
+            return
+
+        if self.calibration_stage == CalibrationStage.BREAK:
+            if elapsed_stage_ms >= self.calibration_break_ms:
+                self.calibration_phase_index += 1
+                if self.calibration_phase_index >= 4:
+                    self._finish_calibration_run()
+                else:
+                    self._start_instruction_stage()
+
+    def _update_calibration_flashing(self, now: float):
+        """Update flash timing for the current attended-arrow phase."""
+        # End active flash if duration has elapsed.
+        if (
+            self.calibration_current_flash is not None
+            and now >= self.calibration_current_flash_end_time
+        ):
+            direction = self.calibration_current_flash
+            sequence = self.calibration_flash_index // 4
+
+            self.calibration_flash_states[direction] = False
+            timestamp_ms = (now - self.calibration_run_start_time) * 1000.0
+            self._on_flash_end(direction, sequence, timestamp_ms)
+
+            self.calibration_current_flash = None
+            self.calibration_flash_index += 1
+
+            if self.calibration_flash_index >= len(self.calibration_flash_plan):
+                self._start_break_stage()
+                return
+
+            self.calibration_next_flash_time = now + (self.config.timing.isi_ms / 1000.0)
+
+        # Start next flash when ISI has elapsed and no flash is active.
+        if (
+            self.calibration_current_flash is None
+            and self.calibration_flash_index < len(self.calibration_flash_plan)
+            and now >= self.calibration_next_flash_time
+        ):
+            direction = self.calibration_flash_plan[self.calibration_flash_index]
+            sequence = self.calibration_flash_index // 4
+
+            self._set_calibration_idle_arrows()
+            self.calibration_flash_states[direction] = True
+            self.calibration_current_flash = direction
+            self.calibration_current_flash_end_time = (
+                now + (self.config.timing.flash_duration_ms / 1000.0)
+            )
+
+            timestamp_ms = (now - self.calibration_run_start_time) * 1000.0
+            self.arrow_manager.triggers.send_flash(direction)
+            self._on_flash_start(direction, sequence, timestamp_ms)
             
     def _simulate_selection(self, direction: Direction):
         """Simulate a classifier result (for testing)"""
@@ -441,7 +629,7 @@ class Application:
             self.arrow_manager.simulate_selection(direction)
             print(f"Simulated selection: {direction.value}")
         else:
-            print("Start selection first (SPACE)")
+            print("Simulation only works during legacy selection flashing")
             
     def _manual_move(self, direction: Direction):
         """Handle manual movement (for testing game without BCI)"""
@@ -458,7 +646,7 @@ class Application:
             self.settings_panel.hide()
         else:
             # Don't open settings during active selection
-            if self.arrow_manager.is_active:
+            if self.arrow_manager.is_active or self._is_calibration_active():
                 print("Cannot open settings during active selection")
                 return
                 
@@ -546,8 +734,11 @@ class Application:
         """Update game state"""
         delta_ms = self.clock.get_time()
         
-        # Update arrow manager
-        self.arrow_manager.update()
+        # Update active stimulus mode
+        if self._is_calibration_active():
+            self._update_calibration_run()
+        else:
+            self.arrow_manager.update()
         
         # Update game manager
         if self.game_manager:
@@ -567,8 +758,11 @@ class Application:
         if self.game_manager:
             self.game_manager.draw(self.render_surface)
         
-        # Draw arrows (on top of game)
-        self.arrow_manager.draw(self.render_surface)
+        # Draw arrows / calibration stimulus (on top of game)
+        if self._is_calibration_active():
+            self._draw_calibration_stimulus()
+        else:
+            self.arrow_manager.draw(self.render_surface)
         
         # Draw UI overlays (debug only now - scoreboard is part of game renderer)
         if self.show_debug:
@@ -627,13 +821,59 @@ class Application:
             centery=DESIGN_HEIGHT - bar_height // 2
         )
         self.render_surface.blit(text, text_rect)
+
+    def _draw_calibration_stimulus(self):
+        """
+        Draw calibration visuals.
+
+        FLASHING stage:
+            - Render arrows with one highlighted at a time.
+        INSTRUCTION/BREAK stages:
+            - Clear stimulus area to a neutral screen with no flashing.
+            - Show centered ATTEND instruction during instruction stage.
+        """
+        if self.calibration_stage == CalibrationStage.FLASHING:
+            self.arrow_manager.renderer.draw(self.render_surface, self.calibration_flash_states)
+            return
+
+        panel_rect = self.arrow_manager.get_panel_rect()
+        if panel_rect:
+            neutral_rect = panel_rect.inflate(100, 100)
+            pygame.draw.rect(
+                self.render_surface,
+                self.config.display.background_color,
+                neutral_rect,
+            )
+
+        if (
+            self.calibration_stage == CalibrationStage.INSTRUCTION
+            and self.calibration_phase_index < len(self.calibration_phase_order)
+        ):
+            attended = self.calibration_phase_order[self.calibration_phase_index]
+            message = f"ATTEND {attended.value.upper()}"
+            text = self.font_large.render(message, True, (200, 200, 200))
+            if panel_rect:
+                text_rect = text.get_rect(center=panel_rect.center)
+            else:
+                text_rect = text.get_rect(center=(DESIGN_WIDTH // 2, DESIGN_HEIGHT // 2))
+            self.render_surface.blit(text, text_rect)
         
     def _draw_debug(self):
         """Draw debug information overlay"""
+        if self._is_calibration_active():
+            state_text = f"CALIBRATION_{self.calibration_stage.name}"
+            if self.calibration_stage == CalibrationStage.FLASHING and self.calibration_flash_plan:
+                progress = self.calibration_flash_index / len(self.calibration_flash_plan)
+            else:
+                progress = 0.0
+        else:
+            state_text = self.arrow_manager.state.name
+            progress = self.arrow_manager.progress
+
         lines = [
             f"FPS: {self.clock.get_fps():.1f}",
-            f"State: {self.arrow_manager.state.name}",
-            f"Progress: {self.arrow_manager.progress * 100:.0f}%",
+            f"State: {state_text}",
+            f"Progress: {progress * 100:.0f}%",
             "",
             f"Flash: {self.config.timing.flash_duration_ms}ms",
             f"ISI: {self.config.timing.isi_ms}ms",
@@ -642,6 +882,13 @@ class Application:
             f"Window: {self.config.display.width}x{self.config.display.height}",
             f"Scale: {self.scale_factor:.2f}x",
         ]
+
+        if self._is_calibration_active() and self.calibration_phase_order:
+            lines.extend([
+                "",
+                f"Phase: {self.calibration_phase_index + 1}/4",
+                f"Attend: {self.calibration_phase_order[self.calibration_phase_index].value.upper()}",
+            ])
         
         if self.last_selection:
             lines.extend([
@@ -677,6 +924,11 @@ class Application:
             
     def _cleanup(self):
         """Clean up resources"""
+        if self._is_calibration_active():
+            self._finish_calibration_run(cancelled=True)
+        elif self.session_logger and self.session_logger.is_active:
+            self.session_logger.cancel_session()
+
         if self.arrow_manager:
             self.arrow_manager.shutdown()
         pygame.quit()

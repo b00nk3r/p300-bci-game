@@ -13,6 +13,7 @@ It brings together:
 
 import pygame
 import time
+from datetime import datetime
 from typing import Optional, Callable, Dict, List
 from enum import Enum, auto
 from dataclasses import dataclass
@@ -57,6 +58,7 @@ class TriggerManager:
         self._file = None
         self._start_time: float = 0.0
         self._session_filepath: Optional[Path] = None
+        self._current_target: str = "NONE"
         
     def start_session(
         self,
@@ -83,6 +85,8 @@ class TriggerManager:
             flash_rate_hz: Flash rate in Hz
         """
         self._start_time = time.perf_counter()
+        self._current_target = "NONE"
+        session_start_dt = datetime.now()
         
         if self.config.method == "file":
             # Ensure directory exists
@@ -101,7 +105,8 @@ class TriggerManager:
             self._file.write("=" * 70 + "\n\n")
             
             # Session info
-            self._file.write(f"Session started: {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+            session_start_str = session_start_dt.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+            self._file.write(f"Session started: {session_start_str}\n\n")
             
             # Session parameters
             self._file.write("SESSION PARAMETERS\n")
@@ -110,23 +115,13 @@ class TriggerManager:
                 self._file.write(f"Flash Duration:      {flash_duration_ms} ms\n")
             if isi_ms is not None:
                 self._file.write(f"ISI:                 {isi_ms} ms\n")
-            if soa_ms is not None:
-                self._file.write(f"SOA:                 {soa_ms} ms\n")
-            if flash_rate_hz is not None:
-                self._file.write(f"Flash Rate:          {flash_rate_hz:.2f} Hz\n")
             if num_sequences is not None:
                 self._file.write(f"Num Sequences:       {num_sequences}\n")
-            if inter_sequence_pause_ms is not None:
-                self._file.write(f"Inter-Seq Pause:     {inter_sequence_pause_ms} ms\n")
-            if flash_pattern is not None:
-                self._file.write(f"Flash Pattern:       {flash_pattern}\n")
-            if color_scheme is not None:
-                self._file.write(f"Color Scheme:        {color_scheme}\n")
             
             self._file.write("\n")
             self._file.write("TRIGGER EVENTS\n")
             self._file.write("-" * 40 + "\n")
-            self._file.write("Format: timestamp_ms, trigger_code, label\n\n")
+            self._file.write("Format: timestamp_ms, label, current_target\n\n")
             self._file.flush()
             
     def stop_session(self):
@@ -134,13 +129,27 @@ class TriggerManager:
         if self._file:
             self._file.write(f"\n")
             self._file.write("=" * 70 + "\n")
-            self._file.write(f"Session ended: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            session_end_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+            self._file.write(f"Session ended: {session_end_str}\n")
             self._file.write("=" * 70 + "\n")
             self._file.close()
             self._file = None
+            self._current_target = "NONE"
             if self._session_filepath:
                 print(f"Triggers saved: {self._session_filepath}")
             self._session_filepath = None
+
+    def set_current_target(self, target: Optional[Direction]):
+        """
+        Set the currently attended target for trigger logging.
+
+        Args:
+            target: Target direction, or None when no target is active
+        """
+        if target is None:
+            self._current_target = "NONE"
+        else:
+            self._current_target = target.value.upper()
             
     def send(self, code: int, label: str = ""):
         """
@@ -156,7 +165,7 @@ class TriggerManager:
         timestamp_ms = (time.perf_counter() - self._start_time) * 1000
         
         if self.config.method == "file" and self._file:
-            self._file.write(f"{timestamp_ms:.3f}, {code}, {label}\n")
+            self._file.write(f"{timestamp_ms:.3f}, {label}, {self._current_target}\n")
             self._file.flush()
             
         # TODO: Add LSL support
