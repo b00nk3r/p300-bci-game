@@ -62,12 +62,29 @@ class EEGReceiver:
         Raises:
             RuntimeError: If no EEG stream is found within *timeout*.
         """
-        streams = pylsl.resolve_stream("type", "EEG", 1, timeout)
+        print(f"EEG Receiver: Searching for LSL EEG stream (timeout={timeout}s)...")
+        streams = pylsl.resolve_byprop("type", "EEG", minimum=1, timeout=timeout)
         if not streams:
             raise RuntimeError(
                 f"No LSL EEG stream found within {timeout}s. "
                 "Make sure g.Recorder (or a mock stream) is running."
             )
+
+        info = streams[0]
+        stream_name = info.name()
+        stream_type = info.type()
+        stream_channels = info.channel_count()
+        stream_sr = info.nominal_srate()
+        print(f"EEG Receiver: Found stream '{stream_name}' "
+              f"(type={stream_type}, channels={stream_channels}, "
+              f"nominal_sr={stream_sr}Hz)")
+        if stream_channels != N_CHANNELS:
+            print(f"  WARNING: Stream has {stream_channels} channels but "
+                  f"bci_config.N_CHANNELS={N_CHANNELS}. "
+                  f"This WILL cause issues!")
+        if stream_sr > 0 and abs(stream_sr - SR) > 1:
+            print(f"  WARNING: Stream sample rate {stream_sr}Hz differs from "
+                  f"bci_config.SR={SR}Hz")
 
         self._inlet = pylsl.StreamInlet(
             streams[0],
@@ -80,6 +97,9 @@ class EEGReceiver:
         self._connected = True
         self._thread = threading.Thread(target=self._acquire_loop, daemon=True)
         self._thread.start()
+        print(f"EEG Receiver: Acquisition thread started, "
+              f"buffer capacity={self._buffer_size} samples "
+              f"({BUFFER_DURATION_S}s)")
 
     def stop(self):
         """Stop the acquisition thread and close the inlet."""

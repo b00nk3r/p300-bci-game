@@ -9,7 +9,7 @@ and the game.  Provides a simple interface for ArrowManager / main.py:
     result = controller.end_trial()
 """
 
-from bci_config import EPOCH_PRE_MS, EPOCH_POST_MS, SR
+from bci_config import EPOCH_PRE_MS, EPOCH_POST_MS, SR, N_CHANNELS
 
 try:
     import pylsl
@@ -85,6 +85,7 @@ class BCIController:
                     or None if there are no flash events / no EEG data.
         """
         if not self._flash_events:
+            print("BCI DIAGNOSTIC: No flash events were recorded during trial")
             return None
 
         flash_times = [ev["time"] for ev in self._flash_events]
@@ -98,11 +99,47 @@ class BCIController:
         start_time = earliest - pre_s - margin_s
         end_time = latest + post_s + margin_s
 
+        now = pylsl.local_clock() if HAS_PYLSL else 0.0
+        print(f"BCI DIAGNOSTIC: {len(self._flash_events)} flash events, "
+              f"time range [{earliest:.3f} – {latest:.3f}], "
+              f"requesting buffer [{start_time:.3f} – {end_time:.3f}], "
+              f"current LSL clock: {now:.3f}")
+
+        buf_samples = self._receiver._samples_written
+        print(f"BCI DIAGNOSTIC: Buffer has {buf_samples} total samples written")
+        if buf_samples > 0:
+            with self._receiver._lock:
+                n = min(buf_samples, self._receiver._buffer_size)
+                if buf_samples <= self._receiver._buffer_size:
+                    ts_min = self._receiver._timestamps[0]
+                    ts_max = self._receiver._timestamps[n - 1]
+                else:
+                    ts_min = self._receiver._timestamps.min()
+                    ts_max = self._receiver._timestamps.max()
+                print(f"BCI DIAGNOSTIC: Buffer timestamp range "
+                      f"[{ts_min:.3f} – {ts_max:.3f}]")
+
         eeg_chunk, timestamps = self._receiver.get_chunk(start_time, end_time)
 
+        print(f"BCI DIAGNOSTIC: Retrieved chunk shape {eeg_chunk.shape}, "
+              f"{len(timestamps)} timestamps")
+
         if eeg_chunk.shape[0] == 0:
-            print("WARNING: No EEG data in buffer for the trial time range")
+            print("WARNING: No EEG data in buffer for the trial time range. "
+                  "Possible causes:\n"
+                  "  - g.Recorder LSL stream timestamps are in a different "
+                  "clock domain\n"
+                  "  - EEG stream was not active during the trial\n"
+                  "  - Buffer overflow (trial too long for buffer)")
             return None
+
+        if eeg_chunk.shape[0] > 0:
+            amp_range = eeg_chunk.max() - eeg_chunk.min()
+            amp_std = eeg_chunk.std()
+            print(f"BCI DIAGNOSTIC: EEG amplitude range={amp_range:.2f}, "
+                  f"std={amp_std:.2f}, "
+                  f"channels={eeg_chunk.shape[1]} "
+                  f"(expected {N_CHANNELS})")
 
         chunk_start_time = timestamps[0]
 
@@ -112,6 +149,11 @@ class BCIController:
             self._flash_events,
             bad_channels=self._bad_channels,
         )
+
+        if result:
+            print(f"BCI DIAGNOSTIC: Classification result: "
+                  f"direction={result.get('predicted_direction')}, "
+                  f"clean={result.get('n_clean_epochs')}/{result.get('n_total_epochs')} epochs")
 
         return result
 
