@@ -1,9 +1,8 @@
 """
 Communication Module
-Contains MATLAB bridge and EEG trigger management.
+Contains BCI controller, EEG receiver, and real-time preprocessor.
 """
 
-# from src.communication.trigger_manager import TriggerManager
-# from src.communication.matlab_bridge import MatlabBridge
+from .bci_controller import BCIController
 
-__all__ = []
+__all__ = ["BCIController"]

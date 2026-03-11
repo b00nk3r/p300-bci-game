@@ -218,14 +218,19 @@ class ArrowManager:
         manager.draw(screen)
     """
     
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, bci_controller=None):
         """
         Initialize arrow manager.
         
         Args:
             config: Main application configuration
+            bci_controller: Optional BCIController for real-time EEG classification.
+                            When provided, flash events are forwarded to the BCI
+                            pipeline and classification runs automatically at
+                            the end of each trial.
         """
         self.config = config
+        self.bci_controller = bci_controller
         
         # Import here to avoid circular imports
         from src.stimulus.arrow_renderer import ArrowRenderer
@@ -306,6 +311,9 @@ class ArrowManager:
         self._flash_states = {d: False for d in Direction.all()}
         self._selected_direction = None
         self._selection_start_time = time.perf_counter()
+        
+        if self.bci_controller is not None:
+            self.bci_controller.begin_trial()
         
         # Start new trigger session (creates new file with parameters)
         self.triggers.start_session(
@@ -400,6 +408,10 @@ class ArrowManager:
         # Send trigger
         self.triggers.send_flash(direction)
         
+        # Record flash for BCI pipeline (uses LSL clock, not perf_counter)
+        if self.bci_controller is not None:
+            self.bci_controller.record_flash(direction.value)
+        
         # Call external callback for logging
         if self._on_flash_start:
             self._on_flash_start(direction, sequence, time_ms)
@@ -425,8 +437,35 @@ class ArrowManager:
         # Move to processing state (waiting for classifier)
         self._set_state(SelectionState.PROCESSING)
         
-        # In a real BCI, we'd wait for MATLAB classifier result here
-        # For now, we'll need external input or simulation
+        # If BCI controller is available, classify immediately
+        if self.bci_controller is not None and self.bci_controller.is_connected():
+            try:
+                result = self.bci_controller.end_trial()
+                if result and result.get("predicted_direction"):
+                    direction_str = result["predicted_direction"]
+                    dir_map = {
+                        "up": Direction.UP,
+                        "down": Direction.DOWN,
+                        "left": Direction.LEFT,
+                        "right": Direction.RIGHT,
+                    }
+                    direction = dir_map.get(direction_str)
+                    if direction is not None:
+                        scores = result.get("direction_scores", {})
+                        n_clean = result.get("n_clean_epochs", 0)
+                        n_total = result.get("n_total_epochs", 0)
+                        print(f"BCI classification: {direction_str} "
+                              f"({n_clean}/{n_total} clean epochs)")
+                        for d, s in sorted(scores.items()):
+                            print(f"  {d}: {s:.4f}")
+                        self._handle_classifier_result(direction, confidence=1.0)
+                        return
+                else:
+                    print("BCI classification returned no result, "
+                          "waiting for keyboard input")
+            except Exception as e:
+                print(f"BCI classification error: {e}, "
+                      "waiting for keyboard input")
         
     def _handle_classifier_result(self, direction: Direction, confidence: float):
         """

@@ -5,11 +5,15 @@
 pygame>=2.5.0
 numpy>=1.24.0
 
-# For MATLAB communication (optional)
+# For MATLAB communication and signal processing
 scipy>=1.10.0
 
 # For Lab Streaming Layer (optional, for real-time EEG)
-# pylsl>=1.16.0
+pylsl>=1.16.0
+
+# For real-time BCI classification
+joblib>=1.3.0
+scikit-learn>=1.3.0
 
 # Development
 pytest>=7.0.0

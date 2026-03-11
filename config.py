@@ -74,7 +74,7 @@ class TimingConfig:
     
     # Sequence settings
     num_sequences: int = 10           # Repetitions per selection
-    inter_sequence_pause_ms: int = 200
+    inter_sequence_pause_ms: int = 0
     
     # Flash pattern
     flash_pattern: FlashPattern = FlashPattern.RANDOM

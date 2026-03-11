@@ -8,8 +8,9 @@ A Brain-Computer Interface game using P300 evoked potentials
 to control a maze character through flashing arrow stimuli.
 
 Controls:
-    SPACE  - Run one full calibration pass
-    S      - Open settings panel (TODO)
+    SPACE  - Start BCI trial (flash → classify → move)
+    C      - Run calibration pass (data collection)
+    S      - Open settings panel
     D      - Toggle debug overlay
     ESC    - Quit
     Arrows - Manual movement (for testing)
@@ -29,6 +30,8 @@ import random
 from enum import Enum, auto
 
 import pygame
+
+import os
 
 from config import Config, Direction
 from src.stimulus.arrow_manager import ArrowManager, SelectionState, SelectionResult
@@ -74,6 +77,7 @@ class Application:
         self.settings_panel: SettingsPanel = None
         self.game_manager: GameManager = None
         self.session_logger: SessionLogger = None
+        self.bci_controller = None
         
         # Resolution-independent rendering
         self.render_surface = None  # Internal surface at design resolution
@@ -135,6 +139,13 @@ class Application:
             flags,
             display=self.display_index
         )
+        
+        # Use the actual window size (pygame may adjust it, especially
+        # in fullscreen or on HiDPI displays).
+        actual = self.screen.get_size()
+        self.config.display.width = actual[0]
+        self.config.display.height = actual[1]
+        
         pygame.display.set_caption("P300 BCI Game - Salem State University")
         
         self.clock = pygame.time.Clock()
@@ -148,7 +159,10 @@ class Application:
         self.font_medium = pygame.font.Font(None, 32)
         self.font_small = pygame.font.Font(None, 24)
         
-        # Initialize arrow manager
+        # Try to initialize BCI controller before arrow manager
+        self._init_bci_controller()
+        
+        # Initialize arrow manager (receives bci_controller reference)
         self._init_arrow_manager()
         
         # Initialize session logger
@@ -201,9 +215,30 @@ class Application:
             return pygame.event.Event(event.type, **attrs)
         return event
         
+    def _init_bci_controller(self):
+        """Try to initialize the real-time BCI controller.
+
+        Gracefully degrades to keyboard mode if pylsl is not installed,
+        no LSL stream is found, or the model file is missing.
+        """
+        try:
+            from src.communication import BCIController
+            model_path = "models/single_trial_lda_best_model.joblib"
+            if os.path.exists(model_path):
+                self.bci_controller = BCIController(model_path)
+                self.bci_controller.start()
+                print("BCI controller initialized and connected to EEG stream")
+            else:
+                print(f"No model found at {model_path}, running in keyboard mode")
+        except ImportError:
+            print("pylsl not installed, running in keyboard mode")
+        except Exception as e:
+            print(f"BCI initialization failed: {e}, running in keyboard mode")
+            self.bci_controller = None
+
     def _init_arrow_manager(self):
         """Initialize the arrow stimulus system"""
-        self.arrow_manager = ArrowManager(self.config)
+        self.arrow_manager = ArrowManager(self.config, bci_controller=self.bci_controller)
         self.arrow_manager.initialize(
             DESIGN_WIDTH, 
             DESIGN_HEIGHT
@@ -340,8 +375,12 @@ class Application:
         print(f"  Flash rate: {self.config.timing.flash_rate_hz:.1f}Hz per arrow")
         print(f"  Sequences: {self.config.timing.num_sequences}")
         print()
+        bci_status = "CONNECTED" if self.bci_controller else "keyboard mode"
+        print(f"BCI: {bci_status}")
+        print()
         print("Controls:")
-        print("  SPACE  - Run one full calibration pass")
+        print("  SPACE  - Start BCI trial (flash → classify → move)")
+        print("  C      - Run calibration pass (data collection)")
         print("  S      - Open settings panel")
         print("  D      - Toggle debug info")
         print("  R      - Restart current level")
@@ -396,8 +435,12 @@ class Application:
         if key == pygame.K_ESCAPE:
             self.running = False
             
-        # Run one calibration pass
+        # Start a BCI trial (flash → classify → move)
         elif key == pygame.K_SPACE:
+            self._start_bci_trial()
+            
+        # Run one calibration pass (data collection with ATTEND instructions)
+        elif key == pygame.K_c:
             self._start_calibration_run()
             
         # Toggle debug
@@ -440,6 +483,23 @@ class Application:
         elif key == pygame.K_RIGHT:
             self._manual_move(Direction.RIGHT)
             
+    def _start_bci_trial(self):
+        """Start a single BCI trial: flash all arrows → classify → move.
+
+        No ATTEND instruction is shown — the user silently focuses on
+        their desired direction while all four arrows flash.
+        """
+        if self._is_calibration_active():
+            print("Cannot start trial during calibration")
+            return
+
+        if self.arrow_manager.is_active:
+            print("Trial already in progress")
+            return
+
+        self.arrow_manager.start_selection()
+        print("BCI trial started — focus on the direction you want to move")
+
     def _is_calibration_active(self) -> bool:
         """Whether a calibration run is currently active."""
         return self.calibration_stage != CalibrationStage.IDLE
@@ -483,6 +543,9 @@ class Application:
         first_target = self.calibration_phase_order[self.calibration_phase_index]
         self.arrow_manager.triggers.set_current_target(first_target)
         self.arrow_manager.triggers.send_trial_start()
+
+        if self.bci_controller is not None:
+            self.bci_controller.begin_trial()
 
         self._set_calibration_idle_arrows()
         self._start_instruction_stage()
@@ -621,6 +684,8 @@ class Application:
 
             timestamp_ms = (now - self.calibration_run_start_time) * 1000.0
             self.arrow_manager.triggers.send_flash(direction)
+            if self.bci_controller is not None:
+                self.bci_controller.record_flash(direction.value)
             self._on_flash_start(direction, sequence, timestamp_ms)
             
     def _simulate_selection(self, direction: Direction):
@@ -669,7 +734,7 @@ class Application:
         # Apply to config
         values.apply_to_config(self.config)
         
-        # Reinitialize arrow manager with new settings
+        # Reinitialize arrow manager with new settings (preserves bci_controller)
         self.arrow_manager.shutdown()
         self._init_arrow_manager()
         
@@ -929,6 +994,9 @@ class Application:
         elif self.session_logger and self.session_logger.is_active:
             self.session_logger.cancel_session()
 
+        if self.bci_controller:
+            self.bci_controller.stop()
+
         if self.arrow_manager:
             self.arrow_manager.shutdown()
         pygame.quit()
@@ -954,14 +1022,14 @@ def parse_args():
     parser.add_argument(
         "--width", 
         type=int, 
-        default=3072,
-        help="Window width (default: 3072)"
+        default=None,
+        help="Window width (default: auto-detect from screen)"
     )
     parser.add_argument(
         "--height", 
         type=int, 
-        default=1920,
-        help="Window height (default: 1920)"
+        default=None,
+        help="Window height (default: auto-detect from screen)"
     )
     parser.add_argument(
         "--sequences", 
@@ -984,8 +1052,28 @@ def main():
     
     # Create configuration
     config = Config()
-    config.display.width = args.width
-    config.display.height = args.height
+    
+    # Determine window size.
+    # On macOS Retina (HiDPI), pygame.display.Info() returns pixel counts
+    # but set_mode() interprets the size as *points*, so passing the raw
+    # pixel resolution creates a window 4× too large.  We use
+    # get_desktop_sizes() which returns screen-coordinate (point) sizes,
+    # then take 85% for a comfortable windowed experience.
+    if args.width is None or args.height is None:
+        pygame.init()
+        try:
+            desktop_sizes = pygame.display.get_desktop_sizes()
+            screen_w, screen_h = desktop_sizes[0]
+        except AttributeError:
+            info = pygame.display.Info()
+            screen_w, screen_h = info.current_w, info.current_h
+        pygame.quit()
+        config.display.width = args.width or int(screen_w * 0.85)
+        config.display.height = args.height or int(screen_h * 0.85)
+    else:
+        config.display.width = args.width
+        config.display.height = args.height
+    
     config.display.fullscreen = args.fullscreen
     config.debug = args.debug
     
