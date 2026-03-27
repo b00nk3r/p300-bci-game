@@ -236,6 +236,10 @@ class ArrowManager:
         self.timing = TimingController(config.timing)
         self.triggers = TriggerManager(config.triggers)
         
+        # BCI classifier (set by main.py if BCI_MODE is True)
+        self.classifier = None
+        self._bci_classification_done = False
+
         # State
         self._state = SelectionState.IDLE
         self._flash_states: Dict[Direction, bool] = {d: False for d in Direction.all()}
@@ -306,6 +310,10 @@ class ArrowManager:
         self._flash_states = {d: False for d in Direction.all()}
         self._selected_direction = None
         self._selection_start_time = time.perf_counter()
+        self._bci_classification_done = False
+
+        if self.classifier is not None:
+            self.classifier.clear_events()
         
         # Start new trigger session (creates new file with parameters)
         self.triggers.start_session(
@@ -354,7 +362,27 @@ class ArrowManager:
             
             # Update flash states based on timing
             # (already handled via callbacks, but sync here too)
-            
+
+        elif self._state == SelectionState.PROCESSING:
+            if self.classifier is not None and not self._bci_classification_done:
+                self._bci_classification_done = True
+                result = self.classifier.classify_trial()
+
+                if result is not None:
+                    direction_name = result["direction"]
+                    confidence = result["confidence"]
+
+                    print(f"BCI Selection: {direction_name.upper()} "
+                          f"(confidence={confidence:.3f}, "
+                          f"epochs={result['n_epochs_used']}/{result['n_epochs_total']})")
+
+                    direction = Direction[direction_name.upper()]
+                    self._handle_classifier_result(direction, confidence)
+                else:
+                    print("BCI classification failed — waiting for manual input.")
+
+                self.classifier.clear_events()
+
         elif self._state == SelectionState.FEEDBACK:
             # Check if feedback duration has elapsed
             elapsed = (time.perf_counter() - self._feedback_start_time) * 1000
@@ -399,6 +427,14 @@ class ArrowManager:
         
         # Send trigger
         self.triggers.send_flash(direction)
+        
+        # Record flash event for BCI classifier
+        if self.classifier is not None:
+            from pylsl import local_clock
+            self.classifier.record_flash(
+                direction=direction.value,
+                timestamp=local_clock(),
+            )
         
         # Call external callback for logging
         if self._on_flash_start:

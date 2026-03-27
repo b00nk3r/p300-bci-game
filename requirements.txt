@@ -8,8 +8,8 @@ numpy>=1.24.0
 # For MATLAB communication (optional)
 scipy>=1.10.0
 
-# For Lab Streaming Layer (optional, for real-time EEG)
-# pylsl>=1.16.0
+# For Lab Streaming Layer (real-time EEG for BCI mode)
+pylsl>=1.16.0
 
 # Development
 pytest>=7.0.0

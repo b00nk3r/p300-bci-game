@@ -241,3 +241,15 @@ class Config:
 
 # Default configuration instance
 DEFAULT_CONFIG = Config()
+
+# =============================================================================
+# Real-time BCI configuration
+# =============================================================================
+
+BCI_MODE = True   # Set True to enable live EEG classification
+                   # Set False to keep keyboard simulation (keys 1-4)
+
+MODEL_PATH = "models/single_trial_lda_best_model.joblib"
+
+LSL_STREAM_TYPE = "EEG"
+LSL_STREAM_NAME = None   # None = auto-discover; or set a specific name

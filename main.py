@@ -74,6 +74,7 @@ class Application:
         self.settings_panel: SettingsPanel = None
         self.game_manager: GameManager = None
         self.session_logger: SessionLogger = None
+        self.classifier = None
         
         # Resolution-independent rendering
         self.render_surface = None  # Internal surface at design resolution
@@ -151,6 +152,9 @@ class Application:
         # Initialize arrow manager
         self._init_arrow_manager()
         
+        # Initialize BCI classifier (if enabled)
+        self._init_classifier()
+        
         # Initialize session logger
         self._init_session_logger()
         
@@ -217,6 +221,25 @@ class Application:
             on_flash_end=self._on_flash_end,
         )
         
+    def _init_classifier(self):
+        """Initialize the real-time BCI classifier if BCI_MODE is enabled."""
+        from config import BCI_MODE, MODEL_PATH, LSL_STREAM_TYPE, LSL_STREAM_NAME
+
+        self.classifier = None
+        if BCI_MODE:
+            from realtime_classifier import RealtimeClassifier
+            self.classifier = RealtimeClassifier(
+                model_path=MODEL_PATH,
+                stream_type=LSL_STREAM_TYPE,
+                stream_name=LSL_STREAM_NAME,
+            )
+            if not self.classifier.start():
+                print("WARNING: Could not connect to EEG stream. "
+                      "Falling back to keyboard simulation.")
+                self.classifier = None
+
+        self.arrow_manager.classifier = self.classifier
+
     def _init_session_logger(self):
         """Initialize the session logger for data recording"""
         self.session_logger = SessionLogger(output_dir="data/sessions")
@@ -339,6 +362,13 @@ class Application:
         print(f"  SOA: {self.config.timing.soa_ms}ms")
         print(f"  Flash rate: {self.config.timing.flash_rate_hz:.1f}Hz per arrow")
         print(f"  Sequences: {self.config.timing.num_sequences}")
+        print()
+        from config import BCI_MODE
+        print(f"BCI Mode: {'ENABLED' if BCI_MODE else 'DISABLED (keyboard simulation)'}")
+        if self.classifier:
+            print(f"  Classifier: connected")
+        elif BCI_MODE:
+            print(f"  Classifier: FAILED to connect (keyboard fallback)")
         print()
         print("Controls:")
         print("  SPACE  - Run one full calibration pass")
@@ -496,16 +526,23 @@ class Application:
 
     def _start_instruction_stage(self):
         """Start instruction display for current attended arrow."""
-        self.calibration_stage = CalibrationStage.INSTRUCTION
-        self.calibration_stage_start_time = time.perf_counter()
-        self._set_calibration_idle_arrows()
-
         attended = self.calibration_phase_order[self.calibration_phase_index]
         self.arrow_manager.triggers.set_current_target(attended)
-        print(
-            f"Phase {self.calibration_phase_index + 1}/4 - "
-            f"ATTEND {attended.value.upper()}"
-        )
+
+        from config import BCI_MODE
+        if BCI_MODE and self.classifier:
+            # Skip instruction — go directly to flashing
+            print(f"Phase {self.calibration_phase_index + 1}/4 - Flashing")
+            self._start_flashing_stage()
+        else:
+            # Calibration mode — show ATTEND instruction
+            self.calibration_stage = CalibrationStage.INSTRUCTION
+            self.calibration_stage_start_time = time.perf_counter()
+            self._set_calibration_idle_arrows()
+            print(
+                f"Phase {self.calibration_phase_index + 1}/4 - "
+                f"ATTEND {attended.value.upper()}"
+            )
 
     def _start_flashing_stage(self):
         """Start flashing stage for current attended arrow phase."""
@@ -598,6 +635,22 @@ class Application:
             self.calibration_flash_index += 1
 
             if self.calibration_flash_index >= len(self.calibration_flash_plan):
+                # Classify which direction the user attended
+                if self.classifier:
+                    result = self.classifier.classify_trial()
+                    if result:
+                        direction = Direction(result["direction"])
+                        print(f"BCI Selection: {direction.value.upper()} "
+                              f"(confidence={result['confidence']:.3f}, "
+                              f"epochs={result['n_epochs_used']}/{result['n_epochs_total']})")
+                        if self.game_manager and self.game_manager.can_accept_input:
+                            moved = self.game_manager.move_player(direction)
+                            if not moved:
+                                print("  (blocked by wall)")
+                    else:
+                        print("BCI classification failed for this phase.")
+                    self.classifier.clear_events()
+
                 self._start_break_stage()
                 return
 
@@ -621,6 +674,14 @@ class Application:
 
             timestamp_ms = (now - self.calibration_run_start_time) * 1000.0
             self.arrow_manager.triggers.send_flash(direction)
+
+            if self.arrow_manager.classifier is not None:
+                from pylsl import local_clock
+                self.arrow_manager.classifier.record_flash(
+                    direction=direction.value,
+                    timestamp=local_clock(),
+                )
+
             self._on_flash_start(direction, sequence, timestamp_ms)
             
     def _simulate_selection(self, direction: Direction):
@@ -928,6 +989,9 @@ class Application:
             self._finish_calibration_run(cancelled=True)
         elif self.session_logger and self.session_logger.is_active:
             self.session_logger.cancel_session()
+
+        if self.classifier:
+            self.classifier.stop()
 
         if self.arrow_manager:
             self.arrow_manager.shutdown()
