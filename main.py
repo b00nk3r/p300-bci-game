@@ -613,7 +613,14 @@ class Application:
             if elapsed_stage_ms >= self.calibration_break_ms:
                 self.calibration_phase_index += 1
                 if self.calibration_phase_index >= 4:
-                    self._finish_calibration_run()
+                    from config import BCI_MODE
+                    if BCI_MODE and self.classifier:
+                        # Loop: reset to phase 0 and keep going
+                        self.calibration_phase_index = 0
+                        random.shuffle(self.calibration_phase_order)
+                        self._start_instruction_stage()
+                    else:
+                        self._finish_calibration_run()
                 else:
                     self._start_instruction_stage()
 
@@ -733,6 +740,7 @@ class Application:
         # Reinitialize arrow manager with new settings
         self.arrow_manager.shutdown()
         self._init_arrow_manager()
+        self.arrow_manager.classifier = self.classifier
         
         # Update game manager dullness
         if self.game_manager:
