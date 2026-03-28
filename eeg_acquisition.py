@@ -1,108 +1,131 @@
 """
-EEG Acquisition Script — g.Nautilus → LSL Stream
+EEG Acquisition Script — g.Nautilus → LSL Stream (via pygds)
 
-Run this on the Windows lab PC where the g.Nautilus base station
-is connected via USB. It acquires 16-channel EEG at 500 Hz and
-broadcasts it as an LSL stream that the game can pick up.
-
-This script uses g.Pype (g.tec's Python SDK). Install it following
-the g.Pype Training Season 1 Episode 1 instructions.
+Uses the pygds double-buffered GetData callback pattern for
+continuous real-time streaming at 500 Hz.
 
 Usage:
     python eeg_acquisition.py
-
-The game's RealtimeClassifier will automatically discover this
-LSL stream and start receiving data.
-
-References:
-    - g.Pype Training S3E2: g.Nautilus setup
-    - g.Pype Training S4E2: Sending LSL streams
-    - https://gpype.gtec.at/
 """
 
-import gpype as gp
+import sys
+import time
+import threading
+import numpy as np
 
-# ── Configuration ────────────────────────────────────────────────────
+try:
+    import pygds
+except ImportError:
+    print("pygds not found. Install from:")
+    print('  pip install "C:\\Program Files\\gtec\\gNEEDaccess Client API\\Python\\pygds-1.20.1-py3-none-any.whl"')
+    sys.exit(1)
 
-SAMPLING_RATE = 500   # Hz — must match the classifier's SR constant
-N_CHANNELS = 16       # 16-channel g.Nautilus headset
-
-# g.Nautilus serial number (printed on both headset and base station).
-# Replace with YOUR device's serial number.
-SERIAL_NUMBER = "NR-XXXX.XX.XX"
-
-# Bandpass filter applied in hardware (before LSL transmission).
-# The classifier also applies its own software bandpass, so this is
-# an optional first pass for noise reduction during transmission.
-# Set to None to send raw unfiltered data.
-HARDWARE_BANDPASS = (0.5, 100.0)  # Hz — wide pass, let software do the rest
-
-# Notch filter for power line interference (60 Hz in US)
-HARDWARE_NOTCH = (58.0, 62.0)  # Hz — set to (48, 52) for 50 Hz countries
+try:
+    from pylsl import StreamInfo, StreamOutlet
+except ImportError:
+    print("pylsl not found. Install with: pip install pylsl")
+    sys.exit(1)
 
 
-if __name__ == "__main__":
+SAMPLING_RATE = 500
+N_CHANNELS = 16
+STREAM_NAME = "gNautilus"
+STREAM_TYPE = "EEG"
+SCAN_COUNT = 64  # Samples per callback (128ms at 500Hz)
+
+
+def main():
     print("=" * 60)
     print("P300 BCI — EEG Acquisition (g.Nautilus → LSL)")
     print("=" * 60)
 
-    # Create the processing pipeline
-    pipeline = gp.Pipeline()
+    # ── Find and connect ─────────────────────────────────────────────
+    print("\nSearching for connected devices...")
+    devices = pygds.ConnectedDevices()
 
-    # ── g.Nautilus data source ───────────────────────────────────────
-    # This connects to your 16-channel g.Nautilus headset via the
-    # base station. The headset must be powered on and paired.
-    #
-    # If you don't know the serial, comment out serial_number and
-    # g.Pype will try to auto-detect the connected device.
-    nautilus = gp.GNautilus(
-        sampling_rate=SAMPLING_RATE,
-        # serial_number=SERIAL_NUMBER,  # Uncomment and set your serial
+    if not devices:
+        print("ERROR: No g.tec devices found.")
+        sys.exit(1)
+
+    for serial, dev_type, in_use in devices:
+        type_name = {1: "g.HIamp", 2: "g.USBamp", 3: "g.Nautilus"}.get(dev_type, f"Unknown({dev_type})")
+        status = "IN USE" if in_use else "available"
+        print(f"  {serial} — {type_name} ({status})")
+
+    d = pygds.GDS()
+    print(f"\nConnected to {d.Name}")
+    print(f"  Sample rate: {d.SamplingRate} Hz")
+    print(f"  Electrodes: {d.N_electrodes}")
+
+    # ── Create LSL stream ────────────────────────────────────────────
+    lsl_info = StreamInfo(
+        name=STREAM_NAME,
+        type=STREAM_TYPE,
+        channel_count=N_CHANNELS,
+        nominal_srate=SAMPLING_RATE,
+        channel_format="float32",
+        source_id=f"gnautilus_{d.Name}",
     )
+    outlet = StreamOutlet(lsl_info)
 
-    # ── Optional: hardware-level bandpass filter ─────────────────────
-    if HARDWARE_BANDPASS:
-        bandpass = gp.BandpassFilter(
-            low_frequency=HARDWARE_BANDPASS[0],
-            high_frequency=HARDWARE_BANDPASS[1],
-        )
+    print(f"\nLSL stream: {STREAM_NAME} ({N_CHANNELS} ch @ {SAMPLING_RATE} Hz)")
+    print(f"Press Ctrl+C to stop.\n")
 
-    # ── Optional: hardware-level notch filter ────────────────────────
-    if HARDWARE_NOTCH:
-        notch = gp.NotchFilter(
-            low_frequency=HARDWARE_NOTCH[0],
-            high_frequency=HARDWARE_NOTCH[1],
-        )
+    # ── Streaming state ──────────────────────────────────────────────
+    running = True
+    samples_sent = 0
+    start_time = time.time()
+    last_report = start_time
 
-    # ── LSL output stream ────────────────────────────────────────────
-    # This makes the EEG data discoverable on the local network.
-    # The game's LSLReceiver will find it by stream type "EEG".
-    lsl_sender = gp.LSLSender()
+    def on_data(samples):
+        """
+        Callback invoked by GetData for each chunk of samples.
+        Pushes EEG data to LSL and returns True to keep streaming.
+        """
+        nonlocal samples_sent, last_report, running
 
-    # ── Connect the pipeline ─────────────────────────────────────────
-    if HARDWARE_BANDPASS and HARDWARE_NOTCH:
-        pipeline.connect(nautilus, bandpass)
-        pipeline.connect(bandpass, notch)
-        pipeline.connect(notch, lsl_sender)
-    elif HARDWARE_BANDPASS:
-        pipeline.connect(nautilus, bandpass)
-        pipeline.connect(bandpass, lsl_sender)
-    else:
-        pipeline.connect(nautilus, lsl_sender)
+        if not running:
+            return False  # Stop acquisition
 
-    # ── Run ──────────────────────────────────────────────────────────
-    print(f"\nDevice:       g.Nautilus ({N_CHANNELS} channels)")
-    print(f"Sample rate:  {SAMPLING_RATE} Hz")
-    print(f"Output:       LSL stream (type='EEG')")
-    print(f"\nStarting pipeline...")
+        # samples is (scan_count, n_channels) float32 array
+        eeg = samples[:, :N_CHANNELS] if samples.shape[1] > N_CHANNELS else samples
 
-    pipeline.start()
+        # Push to LSL sample by sample
+        for i in range(eeg.shape[0]):
+            outlet.push_sample(eeg[i].tolist())
 
-    print("Pipeline is running. LSL stream is broadcasting.")
-    print("Start the BCI game on this or another computer.")
-    print("\nPress Enter to stop.\n")
+        samples_sent += eeg.shape[0]
 
-    input()
+        # Report every 10 seconds
+        now = time.time()
+        if now - last_report >= 10.0:
+            elapsed = now - start_time
+            rate = samples_sent / elapsed if elapsed > 0 else 0
+            print(f"  [{elapsed:.0f}s] {samples_sent} samples ({rate:.0f} Hz)")
+            last_report = now
 
-    pipeline.stop()
-    print("Pipeline stopped. EEG stream closed.")
+        return True  # Keep streaming
+
+    # ── Run acquisition (blocking call with callback) ────────────────
+    print("Streaming... Start the BCI game now.\n")
+
+    try:
+        # GetData blocks and continuously calls on_data with chunks
+        # of SCAN_COUNT samples until on_data returns False
+        d.GetData(SCAN_COUNT, more=on_data)
+    except KeyboardInterrupt:
+        running = False
+        elapsed = time.time() - start_time
+        print(f"\nStopped after {elapsed:.1f}s, {samples_sent} samples.")
+
+    # ── Cleanup ──────────────────────────────────────────────────────
+    print("Closing device...")
+    try:
+        d.Close()
+    except Exception:
+        pass
+    print("Done.")
+
+
+if __name__ == "__main__":
+    main()
