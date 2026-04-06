@@ -4,12 +4,16 @@
 # Core
 pygame>=2.5.0
 numpy>=1.24.0
+joblib
+scikit-learn
+xgboost
 
 # For MATLAB communication (optional)
 scipy>=1.10.0
 
 # For Lab Streaming Layer (real-time EEG for BCI mode)
 pylsl>=1.16.0
+h5py
 
 # Development
 pytest>=7.0.0

@@ -8,11 +8,11 @@ A Brain-Computer Interface game using P300 evoked potentials
 to control a maze character through flashing arrow stimuli.
 
 Controls:
-    SPACE  - Run one full calibration pass
+    SPACE  - Run one full calibration pass (data collection mode)
     S      - Open settings panel (TODO)
     D      - Toggle debug overlay
     ESC    - Quit
-    Arrows - Manual movement (for testing)
+    Arrows - Live BCI target labels / manual movement fallback
     1-4    - Simulate BCI selection (Up/Down/Left/Right)
 
 Usage:
@@ -50,6 +50,7 @@ class CalibrationStage(Enum):
     INSTRUCTION = auto()
     FLASHING = auto()
     BREAK = auto()
+    WAITING = auto()       # Paused after classification, waiting for next target input
 
 
 class Application:
@@ -220,16 +221,15 @@ class Application:
             on_flash_start=self._on_flash_start,
             on_flash_end=self._on_flash_end,
         )
-        
+
     def _init_classifier(self):
         """Initialize the real-time BCI classifier if BCI_MODE is enabled."""
-        from config import BCI_MODE, MODEL_PATH, LSL_STREAM_TYPE, LSL_STREAM_NAME
+        from config import BCI_MODE, LSL_STREAM_TYPE, LSL_STREAM_NAME
 
         self.classifier = None
         if BCI_MODE:
-            from realtime_classifier import RealtimeClassifier
-            self.classifier = RealtimeClassifier(
-                model_path=MODEL_PATH,
+            from realtime_classifier import create_classifier
+            self.classifier = create_classifier(
                 stream_type=LSL_STREAM_TYPE,
                 stream_name=LSL_STREAM_NAME,
             )
@@ -371,13 +371,18 @@ class Application:
             print(f"  Classifier: FAILED to connect (keyboard fallback)")
         print()
         print("Controls:")
-        print("  SPACE  - Run one full calibration pass")
+        if self._is_live_bci_mode():
+            print("  Arrows - Set target and start a labeled BCI trial")
+            print("           (movement still comes from the model)")
+            print("  SPACE  - Not used for live BCI trials")
+        else:
+            print("  SPACE  - Run one full calibration pass")
+            print("  Arrows - Manual movement (testing)")
         print("  S      - Open settings panel")
         print("  D      - Toggle debug info")
         print("  R      - Restart current level")
         print("  N      - Skip to next level")
         print("  1-4    - Simulate BCI selection (Up/Down/Left/Right)")
-        print("  Arrows - Manual movement (testing)")
         print("  ESC    - Quit")
         print()
         print("=" * 50)
@@ -419,6 +424,23 @@ class Application:
                     
             if event.type == pygame.KEYDOWN:
                 self._handle_keydown(event.key)
+
+    def _is_live_bci_mode(self) -> bool:
+        """Whether live EEG classification is currently available."""
+        from config import BCI_MODE
+
+        return BCI_MODE and self.classifier is not None
+
+    @staticmethod
+    def _direction_from_key(key: int):
+        """Map arrow keys to directions."""
+        key_map = {
+            pygame.K_UP: Direction.UP,
+            pygame.K_DOWN: Direction.DOWN,
+            pygame.K_LEFT: Direction.LEFT,
+            pygame.K_RIGHT: Direction.RIGHT,
+        }
+        return key_map.get(key)
                 
     def _handle_keydown(self, key: int):
         """Handle keyboard input"""
@@ -426,9 +448,17 @@ class Application:
         if key == pygame.K_ESCAPE:
             self.running = False
             
-        # Run one calibration pass
+        # Run one calibration pass / resume from WAITING
         elif key == pygame.K_SPACE:
-            self._start_calibration_run()
+            if self._is_live_bci_mode():
+                if self.calibration_stage in (CalibrationStage.IDLE, CalibrationStage.WAITING):
+                    print("Press a target arrow to start the next BCI trial.")
+                else:
+                    print("BCI trial already running")
+            elif self.calibration_stage == CalibrationStage.WAITING:
+                self._advance_calibration_phase()
+            else:
+                self._start_calibration_run()
             
         # Toggle debug
         elif key == pygame.K_d:
@@ -459,16 +489,32 @@ class Application:
             self._simulate_selection(Direction.LEFT)
         elif key == pygame.K_4:
             self._simulate_selection(Direction.RIGHT)
-            
-        # Manual movement (for testing game without BCI)
-        elif key == pygame.K_UP:
-            self._manual_move(Direction.UP)
-        elif key == pygame.K_DOWN:
-            self._manual_move(Direction.DOWN)
-        elif key == pygame.K_LEFT:
-            self._manual_move(Direction.LEFT)
-        elif key == pygame.K_RIGHT:
-            self._manual_move(Direction.RIGHT)
+
+        else:
+            direction = self._direction_from_key(key)
+            if direction is not None:
+                if self._handle_live_bci_target_key(direction):
+                    return
+                self._manual_move(direction)
+
+    def _handle_live_bci_target_key(self, direction: Direction) -> bool:
+        """Use arrow keys as target labels when live EEG mode is active."""
+        if not self._is_live_bci_mode():
+            return False
+
+        if self.arrow_manager.is_active:
+            print("Legacy BCI selection already running")
+            return True
+
+        if self.calibration_stage in (CalibrationStage.IDLE, CalibrationStage.WAITING):
+            self._start_live_bci_trial(direction)
+            return True
+
+        if self._is_calibration_active():
+            print("BCI trial already running")
+            return True
+
+        return False
             
     def _is_calibration_active(self) -> bool:
         """Whether a calibration run is currently active."""
@@ -518,6 +564,61 @@ class Application:
         self._start_instruction_stage()
         print("Calibration run started")
 
+    def _start_live_bci_trial(self, target: Direction):
+        """Start one labeled BCI gameplay trial for the given target arrow."""
+        if not self._is_live_bci_mode():
+            return
+
+        if self._is_calibration_active() and self.calibration_stage not in (
+            CalibrationStage.IDLE,
+            CalibrationStage.WAITING,
+        ):
+            print("BCI trial already running")
+            return
+
+        if self.arrow_manager.is_active:
+            self.arrow_manager.stop_selection()
+
+        self.calibration_phase_order = [target]
+        self.calibration_phase_index = 0
+        self.calibration_run_start_time = time.perf_counter()
+
+        if self.classifier:
+            self.classifier.clear_events()
+
+        if self.session_logger and self.session_logger.is_active:
+            self.session_logger.cancel_session()
+
+        self.arrow_manager.triggers.stop_session()
+
+        if self.session_logger:
+            self.session_logger.start_session(
+                flash_duration_ms=self.config.timing.flash_duration_ms,
+                isi_ms=self.config.timing.isi_ms,
+                num_sequences=self.config.timing.num_sequences,
+                inter_sequence_pause_ms=0,
+                flash_pattern="RANDOM",
+                color_scheme=self.config.arrows.color_scheme.name,
+                target_direction=target,
+            )
+
+        self.arrow_manager.triggers.start_session(
+            flash_duration_ms=self.config.timing.flash_duration_ms,
+            isi_ms=self.config.timing.isi_ms,
+            soa_ms=self.config.timing.soa_ms,
+            num_sequences=self.config.timing.num_sequences,
+            inter_sequence_pause_ms=0,
+            flash_pattern="RANDOM",
+            color_scheme=self.config.arrows.color_scheme.name,
+            flash_rate_hz=self.config.timing.flash_rate_hz,
+        )
+        self.arrow_manager.triggers.set_current_target(target)
+        self.arrow_manager.triggers.send_trial_start()
+
+        self._set_calibration_idle_arrows()
+        self._start_flashing_stage()
+        print(f"BCI trial started - target {target.value.upper()}")
+
     def _set_calibration_idle_arrows(self):
         """Set all calibration arrows to non-flashing state."""
         self.calibration_flash_states = {d: False for d in Direction.all()}
@@ -528,11 +629,15 @@ class Application:
         """Start instruction display for current attended arrow."""
         attended = self.calibration_phase_order[self.calibration_phase_index]
         self.arrow_manager.triggers.set_current_target(attended)
+        total_phases = len(self.calibration_phase_order)
 
         from config import BCI_MODE
         if BCI_MODE and self.classifier:
             # Skip instruction — go directly to flashing
-            print(f"Phase {self.calibration_phase_index + 1}/4 - Flashing")
+            print(
+                f"Phase {self.calibration_phase_index + 1}/{total_phases} - "
+                f"Flashing {attended.value.upper()}"
+            )
             self._start_flashing_stage()
         else:
             # Calibration mode — show ATTEND instruction
@@ -540,12 +645,16 @@ class Application:
             self.calibration_stage_start_time = time.perf_counter()
             self._set_calibration_idle_arrows()
             print(
-                f"Phase {self.calibration_phase_index + 1}/4 - "
+                f"Phase {self.calibration_phase_index + 1}/{total_phases} - "
                 f"ATTEND {attended.value.upper()}"
             )
 
     def _start_flashing_stage(self):
         """Start flashing stage for current attended arrow phase."""
+        if self.calibration_phase_order and self.calibration_phase_index < len(self.calibration_phase_order):
+            attended = self.calibration_phase_order[self.calibration_phase_index]
+            self.arrow_manager.triggers.set_current_target(attended)
+
         self.calibration_stage = CalibrationStage.FLASHING
         self.calibration_stage_start_time = time.perf_counter()
         self._set_calibration_idle_arrows()
@@ -565,6 +674,42 @@ class Application:
         self.calibration_stage_start_time = time.perf_counter()
         self.arrow_manager.triggers.set_current_target(None)
         self._set_calibration_idle_arrows()
+
+    def _start_waiting_stage(self):
+        """Pause after classification until the next target is chosen."""
+        self.calibration_stage = CalibrationStage.WAITING
+        self.calibration_stage_start_time = time.perf_counter()
+        self.arrow_manager.triggers.set_current_target(None)
+        self._set_calibration_idle_arrows()
+        if self._is_live_bci_mode():
+            print("Waiting for target arrow (UP/DOWN/LEFT/RIGHT)...")
+        else:
+            print("Waiting for SPACE to start next flash round...")
+
+    def _finalize_live_bci_trial(self, selected_direction: Direction = None):
+        """Close per-trial logs after a live BCI gameplay attempt."""
+        self.arrow_manager.triggers.send_trial_end()
+        self.arrow_manager.triggers.stop_session()
+
+        if self.session_logger and self.session_logger.is_active:
+            self.session_logger.end_session(selected_direction=selected_direction)
+
+    def _advance_calibration_phase(self):
+        """Advance to the next attended direction or finish the run."""
+        self.calibration_phase_index += 1
+
+        if self.calibration_phase_index >= len(self.calibration_phase_order):
+            from config import BCI_MODE
+            if BCI_MODE and self.classifier:
+                # Loop continuously in BCI mode, but wait for SPACE between rounds.
+                self.calibration_phase_index = 0
+                random.shuffle(self.calibration_phase_order)
+                self._start_instruction_stage()
+            else:
+                self._finish_calibration_run()
+            return
+
+        self._start_instruction_stage()
 
     def _finish_calibration_run(self, cancelled: bool = False):
         """Finalize calibration run, close logs, and return to idle."""
@@ -609,20 +754,12 @@ class Application:
             self._update_calibration_flashing(now)
             return
 
+        if self.calibration_stage == CalibrationStage.WAITING:
+            return
+
         if self.calibration_stage == CalibrationStage.BREAK:
             if elapsed_stage_ms >= self.calibration_break_ms:
-                self.calibration_phase_index += 1
-                if self.calibration_phase_index >= 4:
-                    from config import BCI_MODE
-                    if BCI_MODE and self.classifier:
-                        # Loop: reset to phase 0 and keep going
-                        self.calibration_phase_index = 0
-                        random.shuffle(self.calibration_phase_order)
-                        self._start_instruction_stage()
-                    else:
-                        self._finish_calibration_run()
-                else:
-                    self._start_instruction_stage()
+                self._advance_calibration_phase()
 
     def _update_calibration_flashing(self, now: float):
         """Update flash timing for the current attended-arrow phase."""
@@ -643,22 +780,27 @@ class Application:
 
             if self.calibration_flash_index >= len(self.calibration_flash_plan):
                 # Classify which direction the user attended
+                selected_direction = None
                 if self.classifier:
                     result = self.classifier.classify_trial()
                     if result:
-                        direction = Direction(result["direction"])
-                        print(f"BCI Selection: {direction.value.upper()} "
+                        selected_direction = Direction(result["direction"])
+                        print(f"BCI Selection: {selected_direction.value.upper()} "
                               f"(confidence={result['confidence']:.3f}, "
                               f"epochs={result['n_epochs_used']}/{result['n_epochs_total']})")
                         if self.game_manager and self.game_manager.can_accept_input:
-                            moved = self.game_manager.move_player(direction)
+                            moved = self.game_manager.move_player(selected_direction)
                             if not moved:
                                 print("  (blocked by wall)")
                     else:
                         print("BCI classification failed for this phase.")
                     self.classifier.clear_events()
 
-                self._start_break_stage()
+                if self._is_live_bci_mode():
+                    self._finalize_live_bci_trial(selected_direction)
+                    self._start_waiting_stage()
+                else:
+                    self._start_break_stage()
                 return
 
             self.calibration_next_flash_time = now + (self.config.timing.isi_ms / 1000.0)
@@ -914,6 +1056,8 @@ class Application:
                 neutral_rect,
             )
 
+        center = panel_rect.center if panel_rect else (DESIGN_WIDTH // 2, DESIGN_HEIGHT // 2)
+
         if (
             self.calibration_stage == CalibrationStage.INSTRUCTION
             and self.calibration_phase_index < len(self.calibration_phase_order)
@@ -921,10 +1065,17 @@ class Application:
             attended = self.calibration_phase_order[self.calibration_phase_index]
             message = f"ATTEND {attended.value.upper()}"
             text = self.font_large.render(message, True, (200, 200, 200))
-            if panel_rect:
-                text_rect = text.get_rect(center=panel_rect.center)
-            else:
-                text_rect = text.get_rect(center=(DESIGN_WIDTH // 2, DESIGN_HEIGHT // 2))
+            text_rect = text.get_rect(center=center)
+            self.render_surface.blit(text, text_rect)
+
+        if self.calibration_stage == CalibrationStage.WAITING:
+            wait_message = (
+                "Press target arrow"
+                if self._is_live_bci_mode()
+                else "Press SPACE"
+            )
+            text = self.font_large.render(wait_message, True, (160, 160, 160))
+            text_rect = text.get_rect(center=center)
             self.render_surface.blit(text, text_rect)
         
     def _draw_debug(self):
@@ -953,9 +1104,10 @@ class Application:
         ]
 
         if self._is_calibration_active() and self.calibration_phase_order:
+            total_phases = len(self.calibration_phase_order)
             lines.extend([
                 "",
-                f"Phase: {self.calibration_phase_index + 1}/4",
+                f"Phase: {self.calibration_phase_index + 1}/{total_phases}",
                 f"Attend: {self.calibration_phase_order[self.calibration_phase_index].value.upper()}",
             ])
         

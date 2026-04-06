@@ -249,7 +249,54 @@ DEFAULT_CONFIG = Config()
 BCI_MODE = True   # Set True to enable live EEG classification
                    # Set False to keep keyboard simulation (keys 1-4)
 
-MODEL_PATH = "models/single_trial_lda_best_model.joblib"
-
 LSL_STREAM_TYPE = "EEG"
 LSL_STREAM_NAME = None   # None = auto-discover; or set a specific name
+
+# =============================================================================
+# Model mode: "single" or "ensemble"
+# =============================================================================
+
+MODEL_MODE = "ensemble"    # "single" = one model, "ensemble" = weighted combination
+
+# ── Single-model config (used when MODEL_MODE == "single") ───────────────────
+
+MODEL_PATH = "models/single_trial_lda_best_model.joblib"
+
+# ── Ensemble config (used when MODEL_MODE == "ensemble") ─────────────────────
+#
+# Each model entry maps a name to its saved .joblib artifact path.
+# Every artifact must contain: "model", "feature_params", "cv_scores"
+#
+# Weights are from the best ensemble sweep (WeightedEnsemble12.ipynb).
+# They must be in the same order as ENSEMBLE_MODEL_PATHS.
+
+ENSEMBLE_MODEL_PATHS = {
+    "1_LDA":          "models/single_trial_lda_best_model.joblib",
+    "2_LR":           "models/single_trial_logistic_regression_best_model.joblib",
+    "3_RF":           "models/single_trial_random_forest_best_model.joblib",
+    "4_XGBoost":      "models/single_trial_xgboost_best_model.joblib",
+    "5_LR_l1_bal":    "models/variant_lr_l1_bal_dec20.joblib",
+    "6_LR_l2_C001":   "models/variant_lr_l2_C001_dec20.joblib",
+    "7_LDA_dec40":    "models/variant_lda_dec40.joblib",
+    "8_LDA_dec20":    "models/variant_lda_dec20.joblib",
+    "9_LR_l2_bal":    "models/variant_lr_l2_C001_bal_dec30.joblib",
+    "10_LDA_10Hz":    "models/variant_lda_10hz_dec30.joblib",
+    "11_LDA_12ch":    "models/variant_lda_12ch_dec30.joblib",
+    "12_SVM":         "models/single_trial_linear_svc_best_model.joblib",
+}
+
+# Weights from the best ensemble (copy from your results)
+ENSEMBLE_WEIGHTS = {
+    "1_LDA":          0.131,
+    "2_LR":           0.105,
+    "3_RF":           0.274,
+    "4_XGBoost":      0.011,
+    "5_LR_l1_bal":    0.019,
+    "6_LR_l2_C001":   0.053,
+    "7_LDA_dec40":    0.069,
+    "8_LDA_dec20":    0.040,
+    "9_LR_l2_bal":    0.004,
+    "10_LDA_10Hz":    0.097,
+    "11_LDA_12ch":    0.170,
+    "12_SVM":         0.027,
+}

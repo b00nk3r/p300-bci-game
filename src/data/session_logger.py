@@ -57,6 +57,7 @@ class SessionData:
     total_duration_ms: float = 0.0
     
     # Selection result (if applicable)
+    target_direction: Optional[str] = None
     selected_direction: Optional[str] = None
 
 
@@ -104,6 +105,7 @@ class SessionLogger:
         inter_sequence_pause_ms: int = 200,
         flash_pattern: str = "RANDOM",
         color_scheme: str = "GRAY_WHITE",
+        target_direction: Optional[Direction] = None,
     ):
         """
         Start a new session.
@@ -115,6 +117,7 @@ class SessionLogger:
             inter_sequence_pause_ms: Pause between sequences
             flash_pattern: RANDOM or SEQUENTIAL
             color_scheme: Color scheme name
+            target_direction: Intended target direction for this session/trial
         """
         now = time.time()
         now_dt = datetime.now()
@@ -133,6 +136,7 @@ class SessionLogger:
             inter_sequence_pause_ms=inter_sequence_pause_ms,
             flash_pattern=flash_pattern,
             color_scheme=color_scheme,
+            target_direction=target_direction.value if target_direction else None,
         )
         
         self._session_active = True
@@ -251,6 +255,8 @@ class SessionLogger:
             f.write(f"Start Time:          {session.session_start_datetime}\n")
             f.write(f"End Time:            {session.session_end_datetime}\n")
             f.write(f"Total Duration:      {session.total_duration_ms:.2f} ms\n")
+            if session.target_direction:
+                f.write(f"Target Direction:    {session.target_direction}\n")
             if session.selected_direction:
                 f.write(f"Selected Direction:  {session.selected_direction}\n")
             f.write("\n")
