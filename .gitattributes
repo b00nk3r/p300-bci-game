@@ -1,2 +1,15 @@
 *.joblib filter=lfs diff=lfs merge=lfs -text
+models/variant_lr_l2_C001_bal_dec30.joblib filter=lfs diff=lfs merge=lfs -text
+models/variant_lr_l2_C001_dec20.joblib filter=lfs diff=lfs merge=lfs -text
+models/single_trial_lda_best_model.joblib filter=lfs diff=lfs merge=lfs -text
+models/single_trial_linear_svc_best_model.joblib filter=lfs diff=lfs merge=lfs -text
+models/single_trial_logistic_regression_best_model.joblib filter=lfs diff=lfs merge=lfs -text
+models/variant_lda_10hz_dec30.joblib filter=lfs diff=lfs merge=lfs -text
+models/variant_lda_dec20.joblib filter=lfs diff=lfs merge=lfs -text
+models/variant_lda_dec40.joblib filter=lfs diff=lfs merge=lfs -text
+models/weighted_ensemble_12_best.joblib filter=lfs diff=lfs merge=lfs -text
+models/single_trial_random_forest_best_model.joblib filter=lfs diff=lfs merge=lfs -text
+models/single_trial_xgboost_best_model.joblib filter=lfs diff=lfs merge=lfs -text
+models/variant_lda_12ch_dec30.joblib filter=lfs diff=lfs merge=lfs -text
+models/variant_lr_l1_bal_dec20.joblib filter=lfs diff=lfs merge=lfs -text
 models/*.joblib filter=lfs diff=lfs merge=lfs -text
