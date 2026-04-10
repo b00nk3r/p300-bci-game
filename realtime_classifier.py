@@ -264,7 +264,6 @@ class ModelDescriptor:
         channel_indices: Which channels to use (None = all 16)
         window_start_ms: Feature window start (ms post-stimulus)
         window_end_ms:   Feature window end
-        feature_normalization: Feature-space normalization mode
         score_mean:     Mean of CV scores (for z-score normalisation)
         score_std:      Std of CV scores
     """
@@ -312,13 +311,6 @@ class ModelDescriptor:
         else:
             self.channel_indices = None  # all 16
 
-        feature_normalization = artifact.get("feature_normalization", "none")
-        if isinstance(feature_normalization, dict):
-            feature_normalization = feature_normalization.get("mode", "none")
-        self.feature_normalization = (
-            str(feature_normalization).lower() if feature_normalization else "none"
-        )
-
         # ── Normalisation stats from CV scores ───────────────────
         cv_scores = artifact.get("cv_scores", None)
         if cv_scores is not None:
@@ -342,7 +334,6 @@ class ModelDescriptor:
             self.dec_window, self.dec_step,
             self.lowpass_hz,
             ch_key,
-            self.feature_normalization,
         )
 
     def predict_scores(self, X):
@@ -361,8 +352,7 @@ class ModelDescriptor:
         ch = len(self.channel_indices) if self.channel_indices else 16
         return (
             f"ModelDescriptor({self.name}, dec={self.dec_window}/{self.dec_step}, "
-            f"lp={self.lowpass_hz}Hz, ch={ch}, norm={self.feature_normalization}, "
-            f"w={self.weight:.3f})"
+            f"lp={self.lowpass_hz}Hz, ch={ch}, w={self.weight:.3f})"
         )
 
 
@@ -429,9 +419,6 @@ class RealtimeClassifier:
         # Flash events for the current trial
         self.flash_events = []
         self._lock = threading.Lock()
-        # Running stats used to approximate per-session feature normalization.
-        self._feature_norm_states = {}
-
     # ── Loading ──────────────────────────────────────────────────
 
     def _load_single(self, model_path):
@@ -450,11 +437,6 @@ class RealtimeClassifier:
         print(f"[Classifier] Loaded: {fp.name}")
         print(f"[Classifier]   Window: {fp.window_start_ms}-{fp.window_end_ms} ms")
         print(f"[Classifier]   Decimation: {fp.dec_window}/{fp.dec_step}")
-        if fp.feature_normalization != "none":
-            print(
-                "[Classifier]   Feature normalisation: "
-                f"{fp.feature_normalization} (online session approximation)"
-            )
         cv_acc = artifact.get("cv_metrics", {}).get("trial_acc", None)
         if cv_acc:
             print(f"[Classifier]   CV trial accuracy: {cv_acc*100:.1f}%")
@@ -577,76 +559,6 @@ class RealtimeClassifier:
                 is_clean[i] = False
         return is_clean
 
-    @staticmethod
-    def _compute_feature_stats(X):
-        count = X.shape[0]
-        mean = X.mean(axis=0)
-        centered = X - mean
-        m2 = np.square(centered).sum(axis=0)
-        return count, mean, m2
-
-    @staticmethod
-    def _combine_feature_stats(
-        count_a, mean_a, m2_a, count_b, mean_b, m2_b
-    ):
-        if count_a == 0:
-            return count_b, mean_b.copy(), m2_b.copy()
-        if count_b == 0:
-            return count_a, mean_a.copy(), m2_a.copy()
-
-        total_count = count_a + count_b
-        delta = mean_b - mean_a
-        total_mean = mean_a + delta * (count_b / total_count)
-        total_m2 = (
-            m2_a
-            + m2_b
-            + np.square(delta) * (count_a * count_b / total_count)
-        )
-        return total_count, total_mean, total_m2
-
-    def _normalise_feature_matrix(self, X, feature_key, feature_normalization):
-        """
-        Apply the feature-space normalization expected by the saved artifact.
-
-        Offline training currently exports `feature_normalization="per_day"`.
-        In realtime we do not have the full day available up front, so we use
-        running per-session stats for the same feature pipeline and include the
-        current trial in those stats before scoring it.
-        """
-        if len(X) == 0 or feature_normalization == "none":
-            return X
-
-        if feature_normalization != "per_day":
-            raise ValueError(
-                f"Unsupported feature_normalization: {feature_normalization}"
-            )
-
-        state = self._feature_norm_states.get(feature_key)
-        batch_count, batch_mean, batch_m2 = self._compute_feature_stats(X)
-
-        if state is None:
-            total_count, total_mean, total_m2 = batch_count, batch_mean, batch_m2
-        else:
-            total_count, total_mean, total_m2 = self._combine_feature_stats(
-                state["count"],
-                state["mean"],
-                state["m2"],
-                batch_count,
-                batch_mean,
-                batch_m2,
-            )
-
-        std = np.sqrt(total_m2 / total_count)
-        std[std == 0] = 1.0
-        X_norm = (X - total_mean) / std
-
-        self._feature_norm_states[feature_key] = {
-            "count": total_count,
-            "mean": total_mean,
-            "m2": total_m2,
-        }
-        return X_norm
-
     def _preprocess_trial(self, data_linear, ts_linear, events):
         """
         Mirror the offline pipeline on a continuous buffer snapshot.
@@ -727,7 +639,7 @@ class RealtimeClassifier:
             epochs_corrected: (n_total, epoch_samples, n_channels) — full preprocessed
             is_clean: boolean mask
             directions: direction index per epoch
-            feature_key: (w_start, w_end, dec_w, dec_s, lowpass, ch_key, normalization)
+            feature_key: (w_start, w_end, dec_w, dec_s, lowpass, ch_key)
 
         Returns:
             X: feature matrix (n_clean, n_features)
@@ -740,7 +652,6 @@ class RealtimeClassifier:
             dec_step,
             lowpass_hz,
             ch_key,
-            feature_normalization,
         ) = feature_key
 
         pre_samp = int(EPOCH_PRE_MS * SR / 1000)
@@ -785,7 +696,6 @@ class RealtimeClassifier:
             clean_dirs.append(directions[i])
 
         X = np.array(features, dtype=np.float64)
-        X = self._normalise_feature_matrix(X, feature_key, feature_normalization)
         clean_dirs = np.array(clean_dirs, dtype=np.int8)
         return X, clean_dirs
 

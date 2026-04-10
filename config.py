@@ -252,9 +252,6 @@ BCI_MODE = True   # Set True to enable live EEG classification
 LSL_STREAM_TYPE = "EEG"
 LSL_STREAM_NAME = None   # None = auto-discover; or set a specific name
 
-WARMUP_TRIALS = 0   # Throwaway trials to stabilize feature normalization
-                     # before real gameplay (0 to disable)
-
 # =============================================================================
 # Model mode: "single" or "ensemble"
 # =============================================================================
