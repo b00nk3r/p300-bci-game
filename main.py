@@ -113,6 +113,10 @@ class Application:
 
         self.calibration_instruction_ms = 2000
         self.calibration_break_ms = 2000
+
+        # Warm-up state (throwaway trials to stabilize feature normalization)
+        self.warmup_remaining = 0
+        self.warmup_total = 0
         
     def initialize(self):
         """Initialize pygame and all components"""
@@ -448,11 +452,11 @@ class Application:
         if key == pygame.K_ESCAPE:
             self.running = False
             
-        # Run one calibration pass / resume from WAITING
+        # Run warm-up / calibration pass / resume from WAITING
         elif key == pygame.K_SPACE:
             if self._is_live_bci_mode():
                 if self.calibration_stage in (CalibrationStage.IDLE, CalibrationStage.WAITING):
-                    print("Press a target arrow to start the next BCI trial.")
+                    self._start_warmup()
                 else:
                     print("BCI trial already running")
             elif self.calibration_stage == CalibrationStage.WAITING:
@@ -519,6 +523,69 @@ class Application:
     def _is_calibration_active(self) -> bool:
         """Whether a calibration run is currently active."""
         return self.calibration_stage != CalibrationStage.IDLE
+
+    def _is_warmup_active(self) -> bool:
+        """Whether a warm-up sequence is in progress."""
+        return self.warmup_remaining > 0
+
+    def _start_warmup(self):
+        """Begin the warm-up sequence to stabilize feature normalization."""
+        from config import WARMUP_TRIALS
+        if not self._is_live_bci_mode() or WARMUP_TRIALS <= 0:
+            print("Press a target arrow to start the next BCI trial.")
+            return
+        if self.warmup_total > 0:
+            print("Press a target arrow to start the next BCI trial.")
+            return
+        self.warmup_remaining = WARMUP_TRIALS
+        self.warmup_total = WARMUP_TRIALS
+        print(f"\n{'='*50}")
+        print(f"WARM-UP: {WARMUP_TRIALS} trials to stabilize")
+        print(f"feature normalization. Attend each arrow.")
+        print(f"{'='*50}\n")
+        self._start_next_warmup_trial()
+
+    def _start_next_warmup_trial(self):
+        """Pick a random direction and begin one warm-up trial."""
+        target = random.choice(Direction.all())
+
+        self.calibration_phase_order = [target]
+        self.calibration_phase_index = 0
+        self.calibration_run_start_time = time.perf_counter()
+
+        if self.classifier:
+            self.classifier.clear_events()
+
+        self.arrow_manager.triggers.stop_session()
+        self.arrow_manager.triggers.start_session(
+            flash_duration_ms=self.config.timing.flash_duration_ms,
+            isi_ms=self.config.timing.isi_ms,
+            soa_ms=self.config.timing.soa_ms,
+            num_sequences=self.config.timing.num_sequences,
+            inter_sequence_pause_ms=0,
+            flash_pattern="RANDOM",
+            color_scheme=self.config.arrows.color_scheme.name,
+            flash_rate_hz=self.config.timing.flash_rate_hz,
+        )
+        self.arrow_manager.triggers.set_current_target(target)
+        self.arrow_manager.triggers.send_trial_start()
+
+        self._set_calibration_idle_arrows()
+        self._start_instruction_stage()
+
+    def _finish_warmup(self):
+        """End the warm-up sequence and return to idle."""
+        print(f"\n{'='*50}")
+        print("Warm-up complete! Feature statistics stabilized.")
+        print(f"{'='*50}\n")
+        print("Press a target arrow to start playing.")
+
+        self.warmup_remaining = 0
+        self.warmup_total = 0
+        self.calibration_stage = CalibrationStage.IDLE
+        self.calibration_phase_order = []
+        self.calibration_phase_index = 0
+        self._set_calibration_idle_arrows()
 
     def _start_calibration_run(self):
         """Start one full data-recording calibration run."""
@@ -632,22 +699,27 @@ class Application:
         total_phases = len(self.calibration_phase_order)
 
         from config import BCI_MODE
-        if BCI_MODE and self.classifier:
-            # Skip instruction — go directly to flashing
+        if BCI_MODE and self.classifier and not self._is_warmup_active():
             print(
                 f"Phase {self.calibration_phase_index + 1}/{total_phases} - "
                 f"Flashing {attended.value.upper()}"
             )
             self._start_flashing_stage()
         else:
-            # Calibration mode — show ATTEND instruction
             self.calibration_stage = CalibrationStage.INSTRUCTION
             self.calibration_stage_start_time = time.perf_counter()
             self._set_calibration_idle_arrows()
-            print(
-                f"Phase {self.calibration_phase_index + 1}/{total_phases} - "
-                f"ATTEND {attended.value.upper()}"
-            )
+            if self._is_warmup_active():
+                warmup_num = self.warmup_total - self.warmup_remaining + 1
+                print(
+                    f"Warm-up {warmup_num}/{self.warmup_total} - "
+                    f"ATTEND {attended.value.upper()}"
+                )
+            else:
+                print(
+                    f"Phase {self.calibration_phase_index + 1}/{total_phases} - "
+                    f"ATTEND {attended.value.upper()}"
+                )
 
     def _start_flashing_stage(self):
         """Start flashing stage for current attended arrow phase."""
@@ -722,6 +794,8 @@ class Application:
         self.calibration_flash_plan = []
         self.calibration_flash_index = 0
         self.calibration_next_flash_time = 0.0
+        self.warmup_remaining = 0
+        self.warmup_total = 0
         self._set_calibration_idle_arrows()
 
         if was_active:
@@ -759,7 +833,10 @@ class Application:
 
         if self.calibration_stage == CalibrationStage.BREAK:
             if elapsed_stage_ms >= self.calibration_break_ms:
-                self._advance_calibration_phase()
+                if self._is_warmup_active():
+                    self._start_next_warmup_trial()
+                else:
+                    self._advance_calibration_phase()
 
     def _update_calibration_flashing(self, now: float):
         """Update flash timing for the current attended-arrow phase."""
@@ -779,24 +856,42 @@ class Application:
             self.calibration_flash_index += 1
 
             if self.calibration_flash_index >= len(self.calibration_flash_plan):
-                # Classify which direction the user attended
                 selected_direction = None
                 if self.classifier:
                     result = self.classifier.classify_trial()
                     if result:
                         selected_direction = Direction(result["direction"])
-                        print(f"BCI Selection: {selected_direction.value.upper()} "
-                              f"(confidence={result['confidence']:.3f}, "
-                              f"epochs={result['n_epochs_used']}/{result['n_epochs_total']})")
-                        if self.game_manager and self.game_manager.can_accept_input:
-                            moved = self.game_manager.move_player(selected_direction)
-                            if not moved:
-                                print("  (blocked by wall)")
+                        if self._is_warmup_active():
+                            warmup_num = self.warmup_total - self.warmup_remaining + 1
+                            print(
+                                f"[Warm-up {warmup_num}/{self.warmup_total}] "
+                                f"Result: {selected_direction.value.upper()} "
+                                f"(confidence={result['confidence']:.3f}, "
+                                f"epochs={result['n_epochs_used']}/{result['n_epochs_total']})"
+                            )
+                        else:
+                            print(
+                                f"BCI Selection: {selected_direction.value.upper()} "
+                                f"(confidence={result['confidence']:.3f}, "
+                                f"epochs={result['n_epochs_used']}/{result['n_epochs_total']})"
+                            )
+                            if self.game_manager and self.game_manager.can_accept_input:
+                                moved = self.game_manager.move_player(selected_direction)
+                                if not moved:
+                                    print("  (blocked by wall)")
                     else:
                         print("BCI classification failed for this phase.")
                     self.classifier.clear_events()
 
-                if self._is_live_bci_mode():
+                if self._is_warmup_active():
+                    self.arrow_manager.triggers.send_trial_end()
+                    self.arrow_manager.triggers.stop_session()
+                    self.warmup_remaining -= 1
+                    if self.warmup_remaining > 0:
+                        self._start_break_stage()
+                    else:
+                        self._finish_warmup()
+                elif self._is_live_bci_mode():
                     self._finalize_live_bci_trial(selected_direction)
                     self._start_waiting_stage()
                 else:
@@ -1063,10 +1158,32 @@ class Application:
             and self.calibration_phase_index < len(self.calibration_phase_order)
         ):
             attended = self.calibration_phase_order[self.calibration_phase_index]
-            message = f"ATTEND {attended.value.upper()}"
-            text = self.font_large.render(message, True, (200, 200, 200))
-            text_rect = text.get_rect(center=center)
-            self.render_surface.blit(text, text_rect)
+            if self._is_warmup_active():
+                warmup_num = self.warmup_total - self.warmup_remaining + 1
+                header = f"WARM-UP ({warmup_num}/{self.warmup_total})"
+                header_surf = self.font_large.render(header, True, (200, 200, 100))
+                header_rect = header_surf.get_rect(center=(center[0], center[1] - 30))
+                self.render_surface.blit(header_surf, header_rect)
+
+                attend_msg = f"Attend {attended.value.upper()}"
+                attend_surf = self.font_medium.render(attend_msg, True, (180, 180, 180))
+                attend_rect = attend_surf.get_rect(center=(center[0], center[1] + 20))
+                self.render_surface.blit(attend_surf, attend_rect)
+            else:
+                message = f"ATTEND {attended.value.upper()}"
+                text = self.font_large.render(message, True, (200, 200, 200))
+                text_rect = text.get_rect(center=center)
+                self.render_surface.blit(text, text_rect)
+
+        if self.calibration_stage == CalibrationStage.BREAK and self._is_warmup_active():
+            header = "WARM-UP"
+            header_surf = self.font_large.render(header, True, (200, 200, 100))
+            header_rect = header_surf.get_rect(center=(center[0], center[1] - 15))
+            self.render_surface.blit(header_surf, header_rect)
+
+            next_surf = self.font_medium.render("Next trial...", True, (120, 120, 120))
+            next_rect = next_surf.get_rect(center=(center[0], center[1] + 25))
+            self.render_surface.blit(next_surf, next_rect)
 
         if self.calibration_stage == CalibrationStage.WAITING:
             wait_message = (
@@ -1103,7 +1220,14 @@ class Application:
             f"Scale: {self.scale_factor:.2f}x",
         ]
 
-        if self._is_calibration_active() and self.calibration_phase_order:
+        if self._is_warmup_active() and self.calibration_phase_order:
+            warmup_num = self.warmup_total - self.warmup_remaining + 1
+            lines.extend([
+                "",
+                f"WARM-UP: {warmup_num}/{self.warmup_total}",
+                f"Attend: {self.calibration_phase_order[self.calibration_phase_index].value.upper()}",
+            ])
+        elif self._is_calibration_active() and self.calibration_phase_order:
             total_phases = len(self.calibration_phase_order)
             lines.extend([
                 "",

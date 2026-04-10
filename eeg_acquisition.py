@@ -38,6 +38,8 @@ NOTCH_LOW_HZ = 48.0
 NOTCH_HIGH_HZ = 52.0
 NOTCH_ORDER = 4
 
+APPLY_PYTHON_FILTER = "--filter" in sys.argv
+
 
 class RealtimeEEGFilter:
 
@@ -139,10 +141,14 @@ def main():
         )
         sys.exit(1)
 
-    stream_filter = RealtimeEEGFilter(
-        sampling_rate=SAMPLING_RATE,
-        n_channels=N_CHANNELS,
-    )
+    stream_filter = None
+    if APPLY_PYTHON_FILTER:
+        stream_filter = RealtimeEEGFilter(
+            sampling_rate=SAMPLING_RATE,
+            n_channels=N_CHANNELS,
+        )
+        print("\n[--filter] Python bandpass/notch filtering ENABLED.")
+        print("Only use this if g.Recorder filters are turned off.\n")
 
     lsl_info = StreamInfo(
         name=STREAM_NAME,
@@ -155,11 +161,14 @@ def main():
     outlet = StreamOutlet(lsl_info)
 
     print(f"\nLSL stream: {STREAM_NAME} ({N_CHANNELS} ch @ {SAMPLING_RATE} Hz)")
-    print(
-        "Acquisition preprocessing: "
-        f"bandpass {BANDPASS_LOW_HZ}-{BANDPASS_HIGH_HZ} Hz, "
-        f"notch {NOTCH_LOW_HZ}-{NOTCH_HIGH_HZ} Hz"
-    )
+    if APPLY_PYTHON_FILTER:
+        print(
+            "Acquisition preprocessing: "
+            f"bandpass {BANDPASS_LOW_HZ}-{BANDPASS_HIGH_HZ} Hz, "
+            f"notch {NOTCH_LOW_HZ}-{NOTCH_HIGH_HZ} Hz"
+        )
+    else:
+        print("Acquisition preprocessing: passthrough (g.Recorder filters assumed)")
     print(f"Press Ctrl+C to stop.\n")
 
     session_start_unix_s = time.time()
@@ -168,6 +177,11 @@ def main():
     unix_lsl_offset_s = session_start_unix_s - session_start_lsl_s
 
     recorder = EEGHDF5Recorder(output_dir=HDF5_OUTPUT_DIR)
+    filter_note = (
+        "Python bandpass/notch applied on top of g.Recorder filters"
+        if APPLY_PYTHON_FILTER
+        else "Passthrough — filtering handled by g.Recorder hardware/driver"
+    )
     recording_path = recorder.start(
         sampling_rate=SAMPLING_RATE,
         n_channels=N_CHANNELS,
@@ -175,12 +189,12 @@ def main():
         stream_type=STREAM_TYPE,
         device_name=str(d.Name),
         scan_count=SCAN_COUNT,
-        bandpass_low_hz=BANDPASS_LOW_HZ,
-        bandpass_high_hz=BANDPASS_HIGH_HZ,
-        bandpass_order=BANDPASS_ORDER,
-        notch_low_hz=NOTCH_LOW_HZ,
-        notch_high_hz=NOTCH_HIGH_HZ,
-        notch_order=NOTCH_ORDER,
+        bandpass_low_hz=BANDPASS_LOW_HZ if APPLY_PYTHON_FILTER else 0.0,
+        bandpass_high_hz=BANDPASS_HIGH_HZ if APPLY_PYTHON_FILTER else 0.0,
+        bandpass_order=BANDPASS_ORDER if APPLY_PYTHON_FILTER else 0,
+        notch_low_hz=NOTCH_LOW_HZ if APPLY_PYTHON_FILTER else 0.0,
+        notch_high_hz=NOTCH_HIGH_HZ if APPLY_PYTHON_FILTER else 0.0,
+        notch_order=NOTCH_ORDER if APPLY_PYTHON_FILTER else 0,
         session_start_unix_s=session_start_unix_s,
         session_start_unix_ns=session_start_unix_ns,
         session_start_lsl_s=session_start_lsl_s,
@@ -188,7 +202,7 @@ def main():
         timestamp_reference=(
             "Per-sample LSL timestamps are reconstructed from acquisition callback "
             "arrival time and nominal sampling rate; unix_timestamps use the "
-            "session-start unix-minus-lsl offset."
+            f"session-start unix-minus-lsl offset. {filter_note}"
         ),
     )
     print(f"HDF5 recording: {recording_path}\n")
@@ -207,7 +221,10 @@ def main():
 
         eeg = samples[:, :N_CHANNELS] if samples.shape[1] > N_CHANNELS else samples
 
-        filtered_eeg = stream_filter.process_chunk(eeg)
+        if stream_filter is not None:
+            filtered_eeg = stream_filter.process_chunk(eeg)
+        else:
+            filtered_eeg = eeg.astype(np.float32, copy=False)
 
         chunk_sample_count = filtered_eeg.shape[0]
         if chunk_sample_count == 0:
