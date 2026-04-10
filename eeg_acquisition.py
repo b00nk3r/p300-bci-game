@@ -1,13 +1,3 @@
-"""
-EEG Acquisition Script — g.Nautilus → LSL Stream (via pygds)
-
-Uses the pygds double-buffered GetData callback pattern for
-continuous real-time streaming at 500 Hz.
-
-Usage:
-    python eeg_acquisition.py
-"""
-
 import sys
 import time
 import numpy as np
@@ -37,7 +27,7 @@ SAMPLING_RATE = 500
 N_CHANNELS = 16
 STREAM_NAME = "gNautilus"
 STREAM_TYPE = "EEG"
-SCAN_COUNT = 64  # Samples per callback (128ms at 500Hz)
+SCAN_COUNT = 64
 HDF5_OUTPUT_DIR = "data/eeg_recordings"
 
 BANDPASS_LOW_HZ = 0.1
@@ -50,7 +40,6 @@ NOTCH_ORDER = 4
 
 
 class RealtimeEEGFilter:
-    """Chunk-safe causal filter chain for the acquisition stream."""
 
     def __init__(self, sampling_rate=SAMPLING_RATE, n_channels=N_CHANNELS):
         nyquist = sampling_rate / 2.0
@@ -116,11 +105,8 @@ class RealtimeEEGFilter:
 
 
 def main():
-    print("=" * 60)
     print("P300 BCI — EEG Acquisition (g.Nautilus → LSL)")
-    print("=" * 60)
 
-    # ── Find and connect ─────────────────────────────────────────────
     print("\nSearching for connected devices...")
     devices = pygds.ConnectedDevices()
 
@@ -158,7 +144,6 @@ def main():
         n_channels=N_CHANNELS,
     )
 
-    # ── Create LSL stream ────────────────────────────────────────────
     lsl_info = StreamInfo(
         name=STREAM_NAME,
         type=STREAM_TYPE,
@@ -208,23 +193,18 @@ def main():
     )
     print(f"HDF5 recording: {recording_path}\n")
 
-    # ── Streaming state ──────────────────────────────────────────────
     running = True
     samples_sent = 0
     start_time = session_start_unix_s
     last_report = start_time
 
     def on_data(samples):
-        """
-        Callback invoked by GetData for each chunk of samples.
-        Pushes EEG data to LSL and returns True to keep streaming.
-        """
+
         nonlocal samples_sent, last_report, running
 
         if not running:
-            return False  # Stop acquisition
+            return False
 
-        # samples is (scan_count, n_channels) float32 array
         eeg = samples[:, :N_CHANNELS] if samples.shape[1] > N_CHANNELS else samples
 
         filtered_eeg = stream_filter.process_chunk(eeg)
@@ -243,7 +223,6 @@ def main():
 
         recorder.append_chunk(filtered_eeg, chunk_lsl_timestamps, chunk_unix_timestamps)
 
-        # Push to LSL sample by sample after acquisition-side filtering
         for i in range(filtered_eeg.shape[0]):
             outlet.push_sample(
                 filtered_eeg[i].tolist(),
@@ -252,7 +231,6 @@ def main():
 
         samples_sent += eeg.shape[0]
 
-        # Report every 10 seconds
         now = time.time()
         if now - last_report >= 10.0:
             elapsed = now - start_time
@@ -260,7 +238,7 @@ def main():
             print(f"  [{elapsed:.0f}s] {samples_sent} samples ({rate:.0f} Hz)")
             last_report = now
 
-        return True  # Keep streaming
+        return True
 
     # ── Run acquisition (blocking call with callback) ────────────────
     print("Streaming... Start the BCI game now.\n")

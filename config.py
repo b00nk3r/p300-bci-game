@@ -256,7 +256,7 @@ LSL_STREAM_NAME = None   # None = auto-discover; or set a specific name
 # Model mode: "single" or "ensemble"
 # =============================================================================
 
-MODEL_MODE = "ensemble"    # "single" = one model, "ensemble" = weighted combination
+MODEL_MODE = "single"    # "single" = one model, "ensemble" = weighted combination
 
 # ── Single-model config (used when MODEL_MODE == "single") ───────────────────
 

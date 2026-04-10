@@ -63,6 +63,7 @@ BAD_CH_HIGH_FACTOR = 4.0
 
 BUFFER_DURATION_S = 60
 BUFFER_SAMPLES = BUFFER_DURATION_S * SR
+EVENT_ALIGNMENT_TOLERANCE_S = 0.010
 
 DIRECTION_MAP = {"up": 0, "down": 1, "left": 2, "right": 3}
 DIRECTION_NAMES = {0: "up", 1: "down", 2: "left", 3: "right"}
@@ -72,8 +73,32 @@ DIRECTION_NAMES = {0: "up", 1: "down", 2: "left", 3: "right"}
 CH_NO_ARTIFACT = [2, 3, 4, 6, 7, 8, 10, 11, 12, 13, 14, 15]
 
 
+def _nearest_sample_index(
+    timestamps, event_timestamp, tolerance_s=EVENT_ALIGNMENT_TOLERANCE_S
+):
+    """Return the closest sample index to an event timestamp."""
+    if len(timestamps) == 0:
+        return None
+
+    insert_idx = np.searchsorted(timestamps, event_timestamp)
+    best_idx = min(insert_idx, len(timestamps) - 1)
+
+    if insert_idx > 0:
+        prev_idx = insert_idx - 1
+        if insert_idx >= len(timestamps) or (
+            abs(timestamps[prev_idx] - event_timestamp)
+            < abs(timestamps[best_idx] - event_timestamp)
+        ):
+            best_idx = prev_idx
+
+    if abs(timestamps[best_idx] - event_timestamp) > tolerance_s:
+        return None
+
+    return int(best_idx)
+
+
 # ═════════════════════════════════════════════════════════════════════
-# Ring buffer (unchanged)
+# Ring buffer
 # ═════════════════════════════════════════════════════════════════════
 
 class RingBuffer:
@@ -108,55 +133,57 @@ class RingBuffer:
 
             self.write_idx += n_new
 
+    def _linearize_locked(self):
+        n_valid = min(self.write_idx, self.max_samples)
+        if n_valid == 0:
+            return (
+                np.empty((0, self.n_channels), dtype=self.data.dtype),
+                np.empty(0, dtype=self.timestamps.dtype),
+            )
+
+        if n_valid == self.max_samples:
+            oldest_pos = self.write_idx % self.max_samples
+            data_linear = np.concatenate([
+                self.data[oldest_pos:],
+                self.data[:oldest_pos],
+            ], axis=0)
+            ts_linear = np.concatenate([
+                self.timestamps[oldest_pos:],
+                self.timestamps[:oldest_pos],
+            ])
+        else:
+            data_linear = self.data[:n_valid].copy()
+            ts_linear = self.timestamps[:n_valid].copy()
+
+        return data_linear, ts_linear
+
+    def snapshot(self):
+        """Return the valid buffer contents ordered from oldest to newest."""
+        with self.lock:
+            return self._linearize_locked()
+
     def extract_epoch(self, event_timestamp, pre_ms=EPOCH_PRE_MS, post_ms=EPOCH_POST_MS):
         pre_samples = int(pre_ms * SR / 1000)
         post_samples = int(post_ms * SR / 1000)
         epoch_len = pre_samples + post_samples
 
         with self.lock:
-            if self.write_idx < epoch_len:
-                return None
+            data_linear, ts_linear = self._linearize_locked()
 
-            n_valid = min(self.write_idx, self.max_samples)
-            if n_valid == self.max_samples:
-                oldest_pos = self.write_idx % self.max_samples
-                ts_linear = np.concatenate([
-                    self.timestamps[oldest_pos:],
-                    self.timestamps[:oldest_pos],
-                ])
-            else:
-                ts_linear = self.timestamps[:n_valid]
+        if len(ts_linear) < epoch_len:
+            return None
 
-            insert_idx = np.searchsorted(ts_linear, event_timestamp)
-            best_idx = insert_idx
-            if insert_idx > 0:
-                if insert_idx >= len(ts_linear) or \
-                   abs(ts_linear[insert_idx - 1] - event_timestamp) < \
-                   abs(ts_linear[min(insert_idx, len(ts_linear) - 1)] - event_timestamp):
-                    best_idx = insert_idx - 1
+        best_idx = _nearest_sample_index(ts_linear, event_timestamp)
+        if best_idx is None:
+            return None
 
-            if best_idx >= len(ts_linear):
-                best_idx = len(ts_linear) - 1
+        epoch_start = best_idx - pre_samples
+        epoch_end = best_idx + post_samples
 
-            if abs(ts_linear[best_idx] - event_timestamp) > 0.010:
-                return None
+        if epoch_start < 0 or epoch_end > len(ts_linear):
+            return None
 
-            epoch_start = best_idx - pre_samples
-            epoch_end = best_idx + post_samples
-
-            if epoch_start < 0 or epoch_end > len(ts_linear):
-                return None
-
-            if n_valid == self.max_samples:
-                data_linear = np.concatenate([
-                    self.data[oldest_pos:],
-                    self.data[:oldest_pos],
-                ], axis=0)
-            else:
-                data_linear = self.data[:n_valid]
-
-            epoch = data_linear[epoch_start:epoch_end].copy()
-            return epoch
+        return data_linear[epoch_start:epoch_end].copy()
 
 
 # ═════════════════════════════════════════════════════════════════════
@@ -237,6 +264,7 @@ class ModelDescriptor:
         channel_indices: Which channels to use (None = all 16)
         window_start_ms: Feature window start (ms post-stimulus)
         window_end_ms:   Feature window end
+        feature_normalization: Feature-space normalization mode
         score_mean:     Mean of CV scores (for z-score normalisation)
         score_std:      Std of CV scores
     """
@@ -284,6 +312,13 @@ class ModelDescriptor:
         else:
             self.channel_indices = None  # all 16
 
+        feature_normalization = artifact.get("feature_normalization", "none")
+        if isinstance(feature_normalization, dict):
+            feature_normalization = feature_normalization.get("mode", "none")
+        self.feature_normalization = (
+            str(feature_normalization).lower() if feature_normalization else "none"
+        )
+
         # ── Normalisation stats from CV scores ───────────────────
         cv_scores = artifact.get("cv_scores", None)
         if cv_scores is not None:
@@ -307,6 +342,7 @@ class ModelDescriptor:
             self.dec_window, self.dec_step,
             self.lowpass_hz,
             ch_key,
+            self.feature_normalization,
         )
 
     def predict_scores(self, X):
@@ -323,8 +359,11 @@ class ModelDescriptor:
 
     def __repr__(self):
         ch = len(self.channel_indices) if self.channel_indices else 16
-        return (f"ModelDescriptor({self.name}, dec={self.dec_window}/{self.dec_step}, "
-                f"lp={self.lowpass_hz}Hz, ch={ch}, w={self.weight:.3f})")
+        return (
+            f"ModelDescriptor({self.name}, dec={self.dec_window}/{self.dec_step}, "
+            f"lp={self.lowpass_hz}Hz, ch={ch}, norm={self.feature_normalization}, "
+            f"w={self.weight:.3f})"
+        )
 
 
 # ═════════════════════════════════════════════════════════════════════
@@ -390,6 +429,8 @@ class RealtimeClassifier:
         # Flash events for the current trial
         self.flash_events = []
         self._lock = threading.Lock()
+        # Running stats used to approximate per-session feature normalization.
+        self._feature_norm_states = {}
 
     # ── Loading ──────────────────────────────────────────────────
 
@@ -409,6 +450,11 @@ class RealtimeClassifier:
         print(f"[Classifier] Loaded: {fp.name}")
         print(f"[Classifier]   Window: {fp.window_start_ms}-{fp.window_end_ms} ms")
         print(f"[Classifier]   Decimation: {fp.dec_window}/{fp.dec_step}")
+        if fp.feature_normalization != "none":
+            print(
+                "[Classifier]   Feature normalisation: "
+                f"{fp.feature_normalization} (online session approximation)"
+            )
         cv_acc = artifact.get("cv_metrics", {}).get("trial_acc", None)
         if cv_acc:
             print(f"[Classifier]   CV trial accuracy: {cv_acc*100:.1f}%")
@@ -494,70 +540,182 @@ class RealtimeClassifier:
 
     # ── Shared preprocessing ─────────────────────────────────────
 
-    def _preprocess_epochs(self, raw_epochs):
-        """
-        Shared preprocessing: bandpass → bad channels → CAR → baseline → artifact rejection.
-
-        Args:
-            raw_epochs: np.ndarray of shape (n_epochs, epoch_samples, n_channels)
-
-        Returns:
-            epochs_corrected: preprocessed epochs (n_clean, epoch_samples, n_channels)
-            is_clean: boolean mask
-        """
-        n_total = len(raw_epochs)
-
-        # Bandpass filter (0.5-30 Hz)
-        epochs_filtered = np.zeros_like(raw_epochs)
-        for i in range(n_total):
-            epochs_filtered[i] = filtfilt(self.b_30hz, self.a_30hz, raw_epochs[i], axis=0)
-
-        # Detect bad channels
-        all_data = epochs_filtered.reshape(-1, N_CHANNELS)
-        channel_stds = all_data.std(axis=0)
+    @staticmethod
+    def _detect_bad_channels(eeg_filtered):
+        channel_stds = eeg_filtered.std(axis=0)
         median_std = np.median(channel_stds)
 
         bad_channels = []
-        for ch in range(N_CHANNELS):
+        for ch in range(eeg_filtered.shape[1]):
             if channel_stds[ch] < BAD_CH_LOW_FACTOR * median_std:
                 bad_channels.append(ch)
             elif channel_stds[ch] > BAD_CH_HIGH_FACTOR * median_std:
                 bad_channels.append(ch)
 
-        good_channels = [ch for ch in range(N_CHANNELS) if ch not in bad_channels]
+        return bad_channels
 
-        if bad_channels:
-            print(f"[Classifier] Bad channels detected: {bad_channels}")
+    @staticmethod
+    def _apply_car(eeg, bad_channels):
+        good_channels = [ch for ch in range(eeg.shape[1]) if ch not in bad_channels]
+        avg = eeg[:, good_channels].mean(axis=1, keepdims=True)
+        return eeg - avg
 
-        # CAR
-        for i in range(n_total):
-            avg = epochs_filtered[i][:, good_channels].mean(axis=1, keepdims=True)
-            epochs_filtered[i] = epochs_filtered[i] - avg
-
-        # Baseline correction
+    @staticmethod
+    def _apply_baseline_correction(epochs):
         pre_samp = int(EPOCH_PRE_MS * SR / 1000)
         bl_start = pre_samp + int(BASELINE_START_MS * SR / 1000)
         bl_end = pre_samp + int(BASELINE_END_MS * SR / 1000)
+        baseline_mean = epochs[:, bl_start:bl_end, :].mean(axis=1, keepdims=True)
+        return epochs - baseline_mean
 
-        baseline_mean = epochs_filtered[:, bl_start:bl_end, :].mean(
-            axis=1, keepdims=True
-        )
-        epochs_corrected = epochs_filtered - baseline_mean
-
-        # Artifact rejection
-        is_clean = np.ones(n_total, dtype=bool)
-        for i in range(n_total):
-            pp = epochs_corrected[i].max(axis=0) - epochs_corrected[i].min(axis=0)
+    @staticmethod
+    def _artifact_mask(epochs):
+        is_clean = np.ones(len(epochs), dtype=bool)
+        for i in range(len(epochs)):
+            pp = epochs[i].max(axis=0) - epochs[i].min(axis=0)
             if pp.max() > ARTIFACT_PP_THRESHOLD:
                 is_clean[i] = False
+        return is_clean
 
-        n_clean = is_clean.sum()
+    @staticmethod
+    def _compute_feature_stats(X):
+        count = X.shape[0]
+        mean = X.mean(axis=0)
+        centered = X - mean
+        m2 = np.square(centered).sum(axis=0)
+        return count, mean, m2
+
+    @staticmethod
+    def _combine_feature_stats(
+        count_a, mean_a, m2_a, count_b, mean_b, m2_b
+    ):
+        if count_a == 0:
+            return count_b, mean_b.copy(), m2_b.copy()
+        if count_b == 0:
+            return count_a, mean_a.copy(), m2_a.copy()
+
+        total_count = count_a + count_b
+        delta = mean_b - mean_a
+        total_mean = mean_a + delta * (count_b / total_count)
+        total_m2 = (
+            m2_a
+            + m2_b
+            + np.square(delta) * (count_a * count_b / total_count)
+        )
+        return total_count, total_mean, total_m2
+
+    def _normalise_feature_matrix(self, X, feature_key, feature_normalization):
+        """
+        Apply the feature-space normalization expected by the saved artifact.
+
+        Offline training currently exports `feature_normalization="per_day"`.
+        In realtime we do not have the full day available up front, so we use
+        running per-session stats for the same feature pipeline and include the
+        current trial in those stats before scoring it.
+        """
+        if len(X) == 0 or feature_normalization == "none":
+            return X
+
+        if feature_normalization != "per_day":
+            raise ValueError(
+                f"Unsupported feature_normalization: {feature_normalization}"
+            )
+
+        state = self._feature_norm_states.get(feature_key)
+        batch_count, batch_mean, batch_m2 = self._compute_feature_stats(X)
+
+        if state is None:
+            total_count, total_mean, total_m2 = batch_count, batch_mean, batch_m2
+        else:
+            total_count, total_mean, total_m2 = self._combine_feature_stats(
+                state["count"],
+                state["mean"],
+                state["m2"],
+                batch_count,
+                batch_mean,
+                batch_m2,
+            )
+
+        std = np.sqrt(total_m2 / total_count)
+        std[std == 0] = 1.0
+        X_norm = (X - total_mean) / std
+
+        self._feature_norm_states[feature_key] = {
+            "count": total_count,
+            "mean": total_mean,
+            "m2": total_m2,
+        }
+        return X_norm
+
+    def _preprocess_trial(self, data_linear, ts_linear, events):
+        """
+        Mirror the offline pipeline on a continuous buffer snapshot.
+
+        Order:
+            1. Bandpass the continuous buffer
+            2. Detect bad channels on the continuous signal
+            3. Apply CAR on the continuous signal
+            4. Extract per-flash epochs
+            5. Baseline-correct epochs
+            6. Reject high peak-to-peak artifacts
+        """
+        pre_samples = int(EPOCH_PRE_MS * SR / 1000)
+        post_samples = int(EPOCH_POST_MS * SR / 1000)
+
+        event_sample_indices = []
+        directions = []
+        dropped_alignment = 0
+        dropped_bounds = 0
+
+        for event in events:
+            sample_idx = _nearest_sample_index(ts_linear, event["timestamp"])
+            if sample_idx is None:
+                dropped_alignment += 1
+                continue
+
+            start = sample_idx - pre_samples
+            end = sample_idx + post_samples
+            if start < 0 or end > len(ts_linear):
+                dropped_bounds += 1
+                continue
+
+            event_sample_indices.append(sample_idx)
+            directions.append(DIRECTION_MAP[event["direction"]])
+
+        if dropped_alignment or dropped_bounds:
+            print(
+                "[Classifier] Dropped "
+                f"{dropped_alignment + dropped_bounds}/{len(events)} flash events "
+                f"({dropped_alignment} misaligned, {dropped_bounds} out of bounds)."
+            )
+
+        if not event_sample_indices:
+            return None, None, None
+
+        eeg_filtered = filtfilt(self.b_30hz, self.a_30hz, data_linear, axis=0)
+        bad_channels = self._detect_bad_channels(eeg_filtered)
+        if bad_channels:
+            print(f"[Classifier] Bad channels detected: {bad_channels}")
+        eeg_car = self._apply_car(eeg_filtered, bad_channels)
+
+        raw_epochs = np.array([
+            eeg_car[idx - pre_samples:idx + post_samples]
+            for idx in event_sample_indices
+        ], dtype=np.float64)
+
+        epochs_corrected = self._apply_baseline_correction(raw_epochs)
+        is_clean = self._artifact_mask(epochs_corrected)
+
+        n_total = len(raw_epochs)
+        n_clean = int(is_clean.sum())
         n_rejected = n_total - n_clean
         if n_rejected > 0:
-            print(f"[Classifier] Artifact rejection: {n_rejected}/{n_total} "
-                  f"epochs rejected, {n_clean} clean.")
+            print(
+                f"[Classifier] Artifact rejection: {n_rejected}/{n_total} "
+                f"epochs rejected, {n_clean} clean."
+            )
 
-        return epochs_corrected, is_clean
+        return epochs_corrected, is_clean, np.array(directions, dtype=np.int8)
 
     # ── Feature extraction for one pipeline config ───────────────
 
@@ -569,13 +727,21 @@ class RealtimeClassifier:
             epochs_corrected: (n_total, epoch_samples, n_channels) — full preprocessed
             is_clean: boolean mask
             directions: direction index per epoch
-            feature_key: (w_start, w_end, dec_w, dec_s, lowpass, ch_key)
+            feature_key: (w_start, w_end, dec_w, dec_s, lowpass, ch_key, normalization)
 
         Returns:
             X: feature matrix (n_clean, n_features)
             clean_dirs: direction indices for clean epochs
         """
-        w_start_ms, w_end_ms, dec_window, dec_step, lowpass_hz, ch_key = feature_key
+        (
+            w_start_ms,
+            w_end_ms,
+            dec_window,
+            dec_step,
+            lowpass_hz,
+            ch_key,
+            feature_normalization,
+        ) = feature_key
 
         pre_samp = int(EPOCH_PRE_MS * SR / 1000)
         start_idx = pre_samp + int(w_start_ms * SR / 1000)
@@ -619,6 +785,7 @@ class RealtimeClassifier:
             clean_dirs.append(directions[i])
 
         X = np.array(features, dtype=np.float64)
+        X = self._normalise_feature_matrix(X, feature_key, feature_normalization)
         clean_dirs = np.array(clean_dirs, dtype=np.int8)
         return X, clean_dirs
 
@@ -642,35 +809,30 @@ class RealtimeClassifier:
 
         # Wait for the post-stimulus EEG to arrive in the buffer
         last_flash_time = max(e["timestamp"] for e in events)
-        buffer_ready_time = last_flash_time + (EPOCH_POST_MS / 1000.0) + 0.1
+        min_wait_s = (EPOCH_POST_MS / 1000.0) + 0.1
+        buffer_ready_time = last_flash_time + max(wait_after_last_flash_s, min_wait_s)
         now = local_clock()
         if now < buffer_ready_time:
             wait_needed = buffer_ready_time - now
             print(f"[Classifier] Waiting {wait_needed:.2f}s for buffer to fill...")
             time.sleep(wait_needed)
 
-        # ── Step 1: Extract epochs from ring buffer ──────────────
-        raw_epochs = []
-        epoch_directions = []
-
-        for event in events:
-            epoch = self.ring_buffer.extract_epoch(event["timestamp"])
-            if epoch is not None:
-                raw_epochs.append(epoch)
-                epoch_directions.append(DIRECTION_MAP[event["direction"]])
-
-        if not raw_epochs:
-            print("[Classifier] Failed to extract any epochs from buffer.")
+        # ── Step 1: Snapshot the continuous buffer ────────────────
+        data_linear, ts_linear = self.ring_buffer.snapshot()
+        if len(ts_linear) == 0:
+            print("[Classifier] EEG buffer is empty.")
             return None
 
-        epochs_raw = np.array(raw_epochs, dtype=np.float64)
-        directions = np.array(epoch_directions, dtype=np.int8)
-        n_total = len(epochs_raw)
+        # ── Step 2: Offline-matched continuous preprocessing ─────
+        epochs_corrected, is_clean, directions = self._preprocess_trial(
+            data_linear, ts_linear, events
+        )
+        if epochs_corrected is None:
+            print("[Classifier] Failed to align any flash events to buffered EEG.")
+            return None
 
-        print(f"[Classifier] Extracted {n_total} epochs from buffer.")
-
-        # ── Step 2: Shared preprocessing ─────────────────────────
-        epochs_corrected, is_clean = self._preprocess_epochs(epochs_raw)
+        n_total = len(epochs_corrected)
+        print(f"[Classifier] Extracted {n_total} epochs from continuous buffer.")
         n_clean = int(is_clean.sum())
 
         if n_clean == 0:
