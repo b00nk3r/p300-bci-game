@@ -48,6 +48,7 @@ class CalibrationStage(Enum):
     """Stages for one full calibration run."""
     IDLE = auto()
     INSTRUCTION = auto()
+    PRE_FLASH = auto()     # 3-second gap before flashing begins (BCI mode only)
     FLASHING = auto()
     BREAK = auto()
     WAITING = auto()       # Paused after classification, waiting for next target input
@@ -307,9 +308,9 @@ class Application:
             max_maze_width=maze_width_cells,  # Don't grow beyond screen
             max_maze_height=maze_height_cells,
             maze_growth_per_level=0,  # Keep same size, just regenerate
-            base_collectibles=5,  # Fixed donut count per level
+            base_collectibles=2,  # Fixed donut count per level
             collectibles_per_level=0,
-            max_collectibles=5,
+            max_collectibles=2,
             cell_size=cell_size,
             use_corridors=use_corridors,  # Use corridor mode for large cells
         )
@@ -683,7 +684,7 @@ class Application:
         self.arrow_manager.triggers.send_trial_start()
 
         self._set_calibration_idle_arrows()
-        self._start_flashing_stage()
+        self._start_pre_flash_stage()
         print(f"BCI trial started - target {target.value.upper()}")
 
     def _set_calibration_idle_arrows(self):
@@ -720,6 +721,12 @@ class Application:
                     f"Phase {self.calibration_phase_index + 1}/{total_phases} - "
                     f"ATTEND {attended.value.upper()}"
                 )
+
+    def _start_pre_flash_stage(self):
+        # 3 second delay
+        self.calibration_stage = CalibrationStage.PRE_FLASH
+        self.calibration_stage_start_time = time.perf_counter()
+        self._set_calibration_idle_arrows()
 
     def _start_flashing_stage(self):
         """Start flashing stage for current attended arrow phase."""
@@ -821,6 +828,11 @@ class Application:
 
         if self.calibration_stage == CalibrationStage.INSTRUCTION:
             if elapsed_stage_ms >= self.calibration_instruction_ms:
+                self._start_flashing_stage()
+            return
+
+        if self.calibration_stage == CalibrationStage.PRE_FLASH:
+            if elapsed_stage_ms >= 3000.0:
                 self._start_flashing_stage()
             return
 
