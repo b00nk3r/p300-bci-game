@@ -8,11 +8,11 @@ A Brain-Computer Interface game using P300 evoked potentials
 to control a maze character through flashing arrow stimuli.
 
 Controls:
-    SPACE  - Run one full calibration pass (data collection mode)
+    SPACE  - Start continuous flashing (auto-loops with 15s gaps between selections)
     S      - Open settings panel (TODO)
     D      - Toggle debug overlay
     ESC    - Quit
-    Arrows - Live BCI target labels / manual movement fallback
+    Arrows - Manual movement fallback / labeled BCI trial override
     1-4    - Simulate BCI selection (Up/Down/Left/Right)
 
 Usage:
@@ -113,7 +113,7 @@ class Application:
         self.calibration_next_flash_time = 0.0
 
         self.calibration_instruction_ms = 2000
-        self.calibration_break_ms = 2000
+        self.calibration_break_ms = 10000  # 15-second gap between selections
 
     def initialize(self):
         """Initialize pygame and all components"""
@@ -304,9 +304,9 @@ class Application:
             max_maze_width=maze_width_cells,  # Don't grow beyond screen
             max_maze_height=maze_height_cells,
             maze_growth_per_level=0,  # Keep same size, just regenerate
-            base_collectibles=2,  # Fixed donut count per level
+            base_collectibles=5,  # Fixed donut count per level
             collectibles_per_level=0,
-            max_collectibles=2,
+            max_collectibles=5,
             cell_size=cell_size,
             use_corridors=use_corridors,  # Use corridor mode for large cells
         )
@@ -373,11 +373,10 @@ class Application:
         print()
         print("Controls:")
         if self._is_live_bci_mode():
-            print("  Arrows - Set target and start a labeled BCI trial")
-            print("           (movement still comes from the model)")
-            print("  SPACE  - Not used for live BCI trials")
+            print("  SPACE  - Start continuous BCI trials (auto-loops with 10s gaps)")
+            print("  Arrows - Manually start a labeled trial for a specific direction")
         else:
-            print("  SPACE  - Run one full calibration pass")
+            print("  SPACE  - Start continuous calibration (auto-loops with 10s gaps)")
             print("  Arrows - Manual movement (testing)")
         print("  S      - Open settings panel")
         print("  D      - Toggle debug info")
@@ -449,11 +448,12 @@ class Application:
         if key == pygame.K_ESCAPE:
             self.running = False
             
-        # Run warm-up / calibration pass / resume from WAITING
+        # Start / resume continuous flashing
         elif key == pygame.K_SPACE:
             if self._is_live_bci_mode():
                 if self.calibration_stage in (CalibrationStage.IDLE, CalibrationStage.WAITING):
-                    print("Press a target arrow to start the next BCI trial.")
+                    direction = random.choice(Direction.all())
+                    self._start_live_bci_trial(direction)
                 else:
                     print("BCI trial already running")
             elif self.calibration_stage == CalibrationStage.WAITING:
@@ -575,6 +575,7 @@ class Application:
         if self._is_calibration_active() and self.calibration_stage not in (
             CalibrationStage.IDLE,
             CalibrationStage.WAITING,
+            CalibrationStage.BREAK,
         ):
             print("BCI trial already running")
             return
@@ -619,7 +620,7 @@ class Application:
         self.arrow_manager.triggers.send_trial_start()
 
         self._set_calibration_idle_arrows()
-        self._start_pre_flash_stage()
+        self._start_flashing_stage()
         print(f"BCI trial started - target {target.value.upper()}")
 
     def _set_calibration_idle_arrows(self):
@@ -629,26 +630,15 @@ class Application:
         self.calibration_current_flash_end_time = 0.0
 
     def _start_instruction_stage(self):
-        """Start instruction display for current attended arrow."""
+        """Start flashing stage for current attended arrow (no instruction pause)."""
         attended = self.calibration_phase_order[self.calibration_phase_index]
         self.arrow_manager.triggers.set_current_target(attended)
         total_phases = len(self.calibration_phase_order)
-
-        from config import BCI_MODE
-        if BCI_MODE and self.classifier:
-            print(
-                f"Phase {self.calibration_phase_index + 1}/{total_phases} - "
-                f"Flashing {attended.value.upper()}"
-            )
-            self._start_flashing_stage()
-        else:
-            self.calibration_stage = CalibrationStage.INSTRUCTION
-            self.calibration_stage_start_time = time.perf_counter()
-            self._set_calibration_idle_arrows()
-            print(
-                f"Phase {self.calibration_phase_index + 1}/{total_phases} - "
-                f"ATTEND {attended.value.upper()}"
-            )
+        print(
+            f"Phase {self.calibration_phase_index + 1}/{total_phases} - "
+            f"Flashing {attended.value.upper()}"
+        )
+        self._start_flashing_stage()
 
     def _start_pre_flash_stage(self):
         # 3 second delay
@@ -702,20 +692,57 @@ class Application:
             self.session_logger.end_session(selected_direction=selected_direction)
 
     def _advance_calibration_phase(self):
-        """Advance to the next attended direction or finish the run."""
+        """Advance to the next attended direction or auto-loop the run."""
         self.calibration_phase_index += 1
 
         if self.calibration_phase_index >= len(self.calibration_phase_order):
-            from config import BCI_MODE
-            if BCI_MODE and self.classifier:
-                # Loop continuously in BCI mode, but wait for SPACE between rounds.
-                self.calibration_phase_index = 0
-                random.shuffle(self.calibration_phase_order)
-                self._start_instruction_stage()
+            if self._is_live_bci_mode():
+                # Auto-start next BCI trial with a random target direction.
+                direction = random.choice(Direction.all())
+                self._start_live_bci_trial(direction)
             else:
-                self._finish_calibration_run()
+                # End current run's session and immediately begin the next run.
+                self._begin_next_calibration_loop()
             return
 
+        self._start_instruction_stage()
+
+    def _begin_next_calibration_loop(self):
+        """Finalize the current calibration run's session and auto-start the next."""
+        self.arrow_manager.triggers.send_trial_end()
+        self.arrow_manager.triggers.stop_session()
+        if self.session_logger and self.session_logger.is_active:
+            self.session_logger.end_session()
+
+        # Reshuffle directions for the new run.
+        self.calibration_phase_index = 0
+        random.shuffle(self.calibration_phase_order)
+        self.calibration_run_start_time = time.perf_counter()
+
+        first_target = self.calibration_phase_order[0]
+        if self.session_logger:
+            self.session_logger.start_session(
+                flash_duration_ms=self.config.timing.flash_duration_ms,
+                isi_ms=self.config.timing.isi_ms,
+                num_sequences=self.config.timing.num_sequences,
+                inter_sequence_pause_ms=0,
+                flash_pattern="RANDOM",
+                color_scheme=self.config.arrows.color_scheme.name,
+            )
+        self.arrow_manager.triggers.start_session(
+            flash_duration_ms=self.config.timing.flash_duration_ms,
+            isi_ms=self.config.timing.isi_ms,
+            soa_ms=self.config.timing.soa_ms,
+            num_sequences=self.config.timing.num_sequences,
+            inter_sequence_pause_ms=0,
+            flash_pattern="RANDOM",
+            color_scheme=self.config.arrows.color_scheme.name,
+            flash_rate_hz=self.config.timing.flash_rate_hz,
+        )
+        self.arrow_manager.triggers.set_current_target(first_target)
+        self.arrow_manager.triggers.send_trial_start()
+
+        print("Calibration run complete - auto-starting next run")
         self._start_instruction_stage()
 
     def _finish_calibration_run(self, cancelled: bool = False):
@@ -811,9 +838,7 @@ class Application:
 
                 if self._is_live_bci_mode():
                     self._finalize_live_bci_trial(selected_direction)
-                    self._start_waiting_stage()
-                else:
-                    self._start_break_stage()
+                self._start_break_stage()
                 return
 
             self.calibration_next_flash_time = now + (self.config.timing.isi_ms / 1000.0)
@@ -1080,6 +1105,14 @@ class Application:
             text = self.font_large.render(message, True, (200, 200, 200))
             text_rect = text.get_rect(center=center)
             self.render_surface.blit(text, text_rect)
+
+        if self.calibration_stage == CalibrationStage.BREAK:
+            elapsed_ms = (time.perf_counter() - self.calibration_stage_start_time) * 1000.0
+            remaining_ms = self.calibration_break_ms - elapsed_ms
+            if remaining_ms <= 3000:
+                text = self.font_large.render("Get ready...", True, (130, 130, 130))
+                text_rect = text.get_rect(center=center)
+                self.render_surface.blit(text, text_rect)
 
         if self.calibration_stage == CalibrationStage.WAITING:
             wait_message = (

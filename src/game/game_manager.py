@@ -294,20 +294,19 @@ class GameManager:
         
         self.collectibles.clear()
         
-        # Only spawn within Manhattan distance <= 2 of start, excluding start itself
-        near_start_cells = set()
-        for dy in range(-2, 3):
-            for dx in range(-2, 3):
-                if abs(dx) + abs(dy) <= 2 and (dx, dy) != (0, 0):
-                    cx, cy = start_pos[0] + dx, start_pos[1] + dy
-                    if (self.maze.is_walkable(cx, cy) and
-                            not self.maze.is_forbidden(cx, cy)):
-                        near_start_cells.add((cx, cy))
+        # Build list of all valid spawn positions (any walkable, non-forbidden cell, not start)
+        all_valid_cells = []
+        for y in range(self.maze.height):
+            for x in range(self.maze.width):
+                if (self.maze.is_walkable(x, y) and
+                        not self.maze.is_forbidden(x, y) and
+                        (x, y) != start_pos):
+                    all_valid_cells.append((x, y))
 
         def get_spawn_position(exclude=None):
-            """Get random walkable position within 2 steps of start"""
+            """Get random walkable position anywhere in the maze"""
             all_exclude = exclude or set()
-            candidates = [p for p in near_start_cells if p not in all_exclude]
+            candidates = [p for p in all_valid_cells if p not in all_exclude]
             if not candidates:
                 return None
             import random
