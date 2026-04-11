@@ -286,7 +286,7 @@ class ModelDescriptor:
             self.window_end_ms = int(parts[1])
         else:
             self.window_start_ms = 0
-            self.window_end_ms = 600
+            self.window_end_ms = 800
 
         # Decimation
         if "dec_window" in fp:
@@ -297,8 +297,8 @@ class ModelDescriptor:
             self.dec_window = int(parts[0])
             self.dec_step = int(parts[1])
         else:
-            self.dec_window = 30
-            self.dec_step = 15
+            self.dec_window = 20
+            self.dec_step = 10
 
         # Low-pass cutoff
         self.lowpass_hz = float(fp.get("lowpass", 30))

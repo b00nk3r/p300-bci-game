@@ -260,7 +260,7 @@ MODEL_MODE = "single"    # "single" = one model, "ensemble" = weighted combinati
 
 # ── Single-model config (used when MODEL_MODE == "single") ───────────────────
 
-MODEL_PATH = "models/single_trial_lda_best_model.joblib"
+MODEL_PATH = "models/10trials_model.joblib"
 
 # ── Ensemble config (used when MODEL_MODE == "ensemble") ─────────────────────
 #
