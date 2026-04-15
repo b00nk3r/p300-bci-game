@@ -301,14 +301,12 @@ class Application:
         game_config = GameManagerConfig(
             base_maze_width=maze_width_cells,
             base_maze_height=maze_height_cells,
-            max_maze_width=maze_width_cells,  # Don't grow beyond screen
+            max_maze_width=maze_width_cells,
             max_maze_height=maze_height_cells,
-            maze_growth_per_level=0,  # Keep same size, just regenerate
-            base_collectibles=5,  # Fixed donut count per level
-            collectibles_per_level=0,
+            base_collectibles=5,
             max_collectibles=5,
             cell_size=cell_size,
-            use_corridors=use_corridors,  # Use corridor mode for large cells
+            use_corridors=use_corridors,
         )
         
         self.game_manager = GameManager(game_config)
@@ -328,7 +326,7 @@ class Application:
         
         # Set callbacks
         self.game_manager.set_callbacks(
-            on_level_complete=self._on_level_complete,
+            on_game_over=self._on_game_over,
             on_item_collected=self._on_item_collected,
         )
         
@@ -380,8 +378,7 @@ class Application:
             print("  Arrows - Manual movement (testing)")
         print("  S      - Open settings panel")
         print("  D      - Toggle debug info")
-        print("  R      - Restart current level")
-        print("  N      - Skip to next level")
+        print("  R      - Restart game")
         print("  1-4    - Simulate BCI selection (Up/Down/Left/Right)")
         print("  ESC    - Quit")
         print()
@@ -471,16 +468,10 @@ class Application:
             
         # Game controls
         elif key == pygame.K_r:
-            # Restart level
+            # Restart game
             if self.game_manager:
-                self.game_manager.restart_level()
-                print("Level restarted")
-        elif key == pygame.K_n:
-            # Next level (for testing)
-            if self.game_manager:
-                self.game_manager.next_level()
-                print(f"Advanced to level {self.game_manager.stats.level}")
-            
+                self.game_manager.start_game()
+                print("Game restarted")
         # Simulate selections (for testing)
         elif key == pygame.K_1:
             self._simulate_selection(Direction.UP)
@@ -965,9 +956,9 @@ class Application:
         if self.session_logger and self.session_logger.is_active:
             self.session_logger.log_flash_end(direction, sequence, timestamp_ms)
             
-    def _on_level_complete(self, level: int, score: int):
-        """Called when a game level is completed"""
-        print(f"Level {level} complete! Score: {score}")
+    def _on_game_over(self, stats):
+        """Called when the game is finished"""
+        print(f"Game finished! Score: {stats.score}")
         
     def _on_item_collected(self, points: int):
         """Called when player collects an item"""

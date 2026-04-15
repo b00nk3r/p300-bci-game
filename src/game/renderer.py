@@ -585,9 +585,7 @@ class GameRenderer:
             x_offset = (width - new_width) // 2
             y_offset = height - new_height  # Align to bottom
             
-            # Apply dullness to scoreboard
-            dulled_scaled = self._apply_dullness_to_surface(scaled)
-            self._scoreboard_surface.blit(dulled_scaled, (x_offset, y_offset))
+            self._scoreboard_surface.blit(scaled, (x_offset, y_offset))
             
             # Store board dimensions for text positioning
             # Move text more to the right to avoid frame border
@@ -1330,7 +1328,6 @@ class GameRenderer:
         score: int,
         collected: int,
         total: int,
-        level: int = 1,
         rect: pygame.Rect = None
     ):
         """
@@ -1341,56 +1338,31 @@ class GameRenderer:
             score: Current score
             collected: Number of items collected
             total: Total number of items
-            level: Current level number
             rect: Optional rect to avoid (e.g., arrow panel)
         """
         cell_size = self.config.cell_size
         
         # Calculate scoreboard position (top-right, 2 cells wide)
-        # Get the position of the scoreboard cells
         if hasattr(self, '_scoreboard_cells') and self._scoreboard_cells:
             left_cell = self._scoreboard_cells[0]
-            # Convert grid coords to screen coords
             board_x = self._offset_x + left_cell[0] * cell_size
             board_y = self._offset_y + left_cell[1] * cell_size
         else:
-            # Fallback position
             board_x = self._offset_x + self._maze_width_px - cell_size * 2
             board_y = self._offset_y
         
-        # Scoreboard is drawn as part of the maze cache, so we don't need to draw it here
-        # Just draw the text on top
-        
-        # Use smaller pixel size for scoreboard text
         pixel_size = self._scoreboard_pixel_size if hasattr(self, '_scoreboard_pixel_size') else 2
         
-        # Text position relative to board
         if hasattr(self, '_board_text_left'):
             text_x = board_x + self._board_text_left
             text_y = board_y + self._board_text_top
         else:
-            # Fallback
             text_x = board_x + 10
             text_y = board_y + 10
         
-        # Chalk color (grayscale) - apply dullness
-        base_chalk = (180, 180, 180)
-        factor = self.config.dullness / 5.0
-        chalk_color = tuple(int(c * factor) for c in base_chalk)
+        chalk_color = (180, 180, 180)
         
-        # Line spacing based on pixel size (5x7 font + spacing)
-        line_height = 7 * pixel_size + pixel_size * 2
-        
-        # Draw score (top line) with label
-        self._draw_pixel_text_sized(screen, f"SCORE:{score}", text_x, text_y, chalk_color, pixel_size)
-        
-        # Draw items (middle line) with label
-        text_y += line_height
         self._draw_pixel_text_sized(screen, f"ITEMS:{collected}/{total}", text_x, text_y, chalk_color, pixel_size)
-        
-        # Draw level (bottom line) with label
-        text_y += line_height
-        self._draw_pixel_text_sized(screen, f"LVL:{level}", text_x, text_y, chalk_color, pixel_size)
     
     def _draw_pixel_text_sized(self, surface: pygame.Surface, text: str, x: int, y: int, 
                                 color: Tuple[int, int, int] = None, pixel_size: int = 2):

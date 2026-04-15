@@ -31,7 +31,6 @@ class GameState(Enum):
     READY = auto()          # Ready to start
     PLAYING = auto()        # Game in progress
     PAUSED = auto()         # Game paused
-    LEVEL_COMPLETE = auto() # Level finished
     GAME_OVER = auto()      # Game ended
 
 
@@ -39,7 +38,6 @@ class GameState(Enum):
 class GameStats:
     """Statistics for current game session"""
     score: int = 0
-    level: int = 1
     moves: int = 0
     items_collected: int = 0
     total_items: int = 0
@@ -50,16 +48,14 @@ class GameStats:
 @dataclass
 class GameManagerConfig:
     """Configuration for game manager"""
-    # Maze settings per level
+    # Maze settings
     base_maze_width: int = 21
     base_maze_height: int = 15
-    maze_growth_per_level: int = 2  # Maze grows each level
     max_maze_width: int = 35
     max_maze_height: int = 25
     
-    # Collectibles per level
+    # Collectibles
     base_collectibles: int = 8
-    collectibles_per_level: int = 2
     max_collectibles: int = 25
     
     # Cell size (auto-calculated if 0)
@@ -68,12 +64,9 @@ class GameManagerConfig:
     # Generation mode
     use_corridors: bool = True  # Open playing field with no maze walls
     
-    # Level completion
+    # Completion
     require_all_collectibles: bool = True
     require_reach_goal: bool = False  # Optional: also reach goal square
-    
-    # Timing
-    level_complete_delay_ms: float = 2000.0  # Delay before next level
 
 
 class GameManager:
@@ -118,11 +111,7 @@ class GameManager:
         self._state = GameState.READY
         self._stats = GameStats()
         
-        # Level completion
-        self._level_complete_timer: float = 0.0
-        
         # Callbacks
-        self._on_level_complete: Optional[Callable[[int, int], None]] = None
         self._on_game_over: Optional[Callable[[GameStats], None]] = None
         self._on_item_collected: Optional[Callable[[int], None]] = None
         
@@ -169,38 +158,17 @@ class GameManager:
         self.collectibles = CollectibleManager(CollectibleConfig())
         
     def start_game(self):
-        """Start a new game from level 1"""
+        """Start a new game"""
         self._stats = GameStats(
-            level=1,
             time_started=time.time()
         )
         self._generate_level()
         self._state = GameState.PLAYING
         
-    def restart_level(self):
-        """Restart current level"""
-        self._generate_level()
-        self._state = GameState.PLAYING
-        
-    def next_level(self):
-        """Advance to next level"""
-        self._stats.level += 1
-        self._generate_level()
-        self._state = GameState.PLAYING
-        
     def _generate_level(self):
-        """Generate maze and place elements for current level"""
-        level = self._stats.level
-        
-        # Calculate maze size for this level
-        width = min(
-            self.config.base_maze_width + (level - 1) * self.config.maze_growth_per_level,
-            self.config.max_maze_width
-        )
-        height = min(
-            self.config.base_maze_height + (level - 1) * self.config.maze_growth_per_level,
-            self.config.max_maze_height
-        )
+        """Generate maze and place elements"""
+        width = min(self.config.base_maze_width, self.config.max_maze_width)
+        height = min(self.config.base_maze_height, self.config.max_maze_height)
         
         # Ensure odd dimensions only for traditional maze mode (not corridors)
         if not self.config.use_corridors:
@@ -287,26 +255,21 @@ class GameManager:
         self.player.set_move_callback(self._on_player_move_complete)
         
         # Spawn collectibles
-        num_collectibles = min(
-            self.config.base_collectibles + (level - 1) * self.config.collectibles_per_level,
-            self.config.max_collectibles
-        )
+        num_collectibles = min(self.config.base_collectibles, self.config.max_collectibles)
         
         self.collectibles.clear()
         
-        near_start_cells = set()
-        for dy in range(-2, 3):
-            for dx in range(-2, 3):
-                if abs(dx) + abs(dy) <= 4 and (dx, dy) != (0, 0):
-                    cx, cy = start_pos[0] + dx, start_pos[1] + dy
-                    if (self.maze.is_walkable(cx, cy) and
-                            not self.maze.is_forbidden(cx, cy)):
-                        near_start_cells.add((cx, cy))
+        left_half_limit = width // 2
+        left_side_cells = set()
+        for cy in range(height):
+            for cx in range(left_half_limit):
+                if (cx, cy) != start_pos and self.maze.is_walkable(cx, cy) and not self.maze.is_forbidden(cx, cy):
+                    left_side_cells.add((cx, cy))
 
         def get_spawn_position(exclude=None):
-            """Get random walkable position within 2 steps of start"""
+            """Get random walkable position on the left side of the screen"""
             all_exclude = exclude or set()
-            candidates = [p for p in near_start_cells if p not in all_exclude]
+            candidates = [p for p in left_side_cells if p not in all_exclude]
             if not candidates:
                 return None
             import random
@@ -387,12 +350,11 @@ class GameManager:
             if self.player.grid_position != self.maze.goal_pos:
                 return
                 
-        # Level complete!
-        self._state = GameState.LEVEL_COMPLETE
-        self._level_complete_timer = 0.0
+        # Game complete!
+        self._state = GameState.GAME_OVER
         
-        if self._on_level_complete:
-            self._on_level_complete(self._stats.level, self._stats.score)
+        if self._on_game_over:
+            self._on_game_over(self._stats)
             
     def update(self, delta_ms: float):
         """
@@ -407,13 +369,6 @@ class GameManager:
             
             # Update elapsed time
             self._stats.time_elapsed = time.time() - self._stats.time_started
-            
-        elif self._state == GameState.LEVEL_COMPLETE:
-            # Wait for delay then auto-advance
-            self._level_complete_timer += delta_ms
-            
-            if self._level_complete_timer >= self.config.level_complete_delay_ms:
-                self.next_level()
                 
     def draw(self, screen: pygame.Surface):
         """
@@ -441,25 +396,22 @@ class GameManager:
             score=self._stats.score,
             collected=self._stats.items_collected,
             total=self._stats.total_items,
-            level=self._stats.level
         )
         
-        # Draw level complete message
-        if self._state == GameState.LEVEL_COMPLETE:
+        # Draw game finished message
+        if self._state == GameState.GAME_OVER:
             self.renderer.draw_message(
                 screen,
-                f"Level {self._stats.level} Complete!",
-                f"Score: {self._stats.score} | Next level in {int((self.config.level_complete_delay_ms - self._level_complete_timer) / 1000) + 1}s"
+                "Game Finished!",
+                f"Score: {self._stats.score}"
             )
             
     def set_callbacks(
         self,
-        on_level_complete: Callable[[int, int], None] = None,
         on_game_over: Callable[[GameStats], None] = None,
         on_item_collected: Callable[[int], None] = None,
     ):
         """Set callback functions"""
-        self._on_level_complete = on_level_complete
         self._on_game_over = on_game_over
         self._on_item_collected = on_item_collected
         
@@ -503,10 +455,9 @@ class GameManager:
             self.renderer.config.dullness = dullness
             # Force recreation of textures
             if hasattr(self, '_screen_width') and self.maze:
-                # Recreate textures with new dullness
+                # Recreate maze textures with new dullness (scoreboard is unaffected)
                 cell_size = self.renderer.config.cell_size
                 self.renderer._create_pixel_textures(cell_size)
-                self.renderer._create_scoreboard_texture(cell_size)
                 # Mark maze cache as dirty to force redraw
                 self.renderer.invalidate_maze_cache()
 
@@ -535,14 +486,14 @@ def demo():
     manager.initialize(screen_width, screen_height)
     
     # Callbacks
-    def on_level_complete(level, score):
-        print(f"Level {level} complete! Score: {score}")
+    def on_game_over(stats):
+        print(f"Game finished! Score: {stats.score}")
         
     def on_item_collected(points):
         print(f"Collected item worth {points} points!")
         
     manager.set_callbacks(
-        on_level_complete=on_level_complete,
+        on_game_over=on_game_over,
         on_item_collected=on_item_collected,
     )
     
@@ -554,8 +505,7 @@ def demo():
     
     print("Game Manager Demo")
     print("  Arrow keys: Move player")
-    print("  R: Restart level")
-    print("  N: Next level")
+    print("  R: Restart game")
     print("  ESC: Quit")
     print()
     
@@ -569,9 +519,7 @@ def demo():
                 if event.key == pygame.K_ESCAPE:
                     running = False
                 elif event.key == pygame.K_r:
-                    manager.restart_level()
-                elif event.key == pygame.K_n:
-                    manager.next_level()
+                    manager.start_game()
                     
                 # Movement
                 direction = None
@@ -596,7 +544,7 @@ def demo():
         
         # Draw controls hint at bottom
         hint = font.render(
-            "Arrow keys: Move | R: Restart | N: Next Level | ESC: Quit",
+            "Arrow keys: Move | R: Restart | ESC: Quit",
             True, (40, 40, 40)
         )
         screen.blit(hint, (10, screen_height - 25))
