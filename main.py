@@ -956,9 +956,18 @@ class Application:
         if self.session_logger and self.session_logger.is_active:
             self.session_logger.log_flash_end(direction, sequence, timestamp_ms)
             
+    def _is_game_over(self) -> bool:
+        """Return True when the game manager has reached the GAME_OVER state."""
+        return (
+            self.game_manager is not None
+            and self.game_manager._state == GameState.GAME_OVER
+        )
+
     def _on_game_over(self, stats):
-        """Called when the game is finished"""
+        """Called when the game is finished - stop BCI and display win screen."""
         print(f"Game finished! Score: {stats.score}")
+        # Stop any active BCI trial / calibration run so arrows freeze.
+        self._finish_calibration_run(cancelled=False)
         
     def _on_item_collected(self, points: int):
         """Called when player collects an item"""
@@ -974,11 +983,12 @@ class Application:
         """Update game state"""
         delta_ms = self.clock.get_time()
         
-        # Update active stimulus mode
-        if self._is_calibration_active():
-            self._update_calibration_run()
-        else:
-            self.arrow_manager.update()
+        # Freeze BCI/arrows once the game is won.
+        if not self._is_game_over():
+            if self._is_calibration_active():
+                self._update_calibration_run()
+            else:
+                self.arrow_manager.update()
         
         # Update game manager
         if self.game_manager:
@@ -998,11 +1008,12 @@ class Application:
         if self.game_manager:
             self.game_manager.draw(self.render_surface)
         
-        # Draw arrows / calibration stimulus (on top of game)
-        if self._is_calibration_active():
-            self._draw_calibration_stimulus()
-        else:
-            self.arrow_manager.draw(self.render_surface)
+        # Draw arrows / calibration stimulus (on top of game), hidden when won.
+        if not self._is_game_over():
+            if self._is_calibration_active():
+                self._draw_calibration_stimulus()
+            else:
+                self.arrow_manager.draw(self.render_surface)
         
         # Draw UI overlays (debug only now - scoreboard is part of game renderer)
         if self.show_debug:

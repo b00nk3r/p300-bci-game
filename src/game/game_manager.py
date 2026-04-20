@@ -402,8 +402,8 @@ class GameManager:
         if self._state == GameState.GAME_OVER:
             self.renderer.draw_message(
                 screen,
-                "Game Finished!",
-                f"Score: {self._stats.score}"
+                "You Win!",
+                f"Score: {self._stats.score}  |  Press R to play again"
             )
             
     def set_callbacks(
