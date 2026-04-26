@@ -6,6 +6,7 @@ import pytest
 
 pygame = pytest.importorskip("pygame")
 
+import main as main_module
 from config import Config, Direction
 from main import Application, CalibrationStage, build_calibration_target_order
 
@@ -99,3 +100,51 @@ def test_arrow_from_waiting_starts_next_live_bci_trial(monkeypatch):
 
     assert started == [Direction.LEFT]
     assert manual_moves == []
+
+
+def test_restart_eeg_acquisition_launches_managed_process(monkeypatch):
+    """After training, the app should restart acquisition for online mode."""
+    app = make_app()
+    launched = {}
+
+    class FakeProcess:
+        pid = 1234
+        returncode = None
+
+        def poll(self):
+            return None
+
+    def fake_popen(cmd, cwd):
+        launched["cmd"] = cmd
+        launched["cwd"] = cwd
+        return FakeProcess()
+
+    monkeypatch.setattr(main_module.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(main_module.time, "sleep", lambda _seconds: None)
+
+    assert app._restart_eeg_acquisition_for_online_mode()
+    assert launched["cmd"] == [
+        main_module.sys.executable,
+        str(main_module.EEG_ACQUISITION_SCRIPT),
+    ]
+    assert launched["cwd"] == str(main_module.PROJECT_ROOT)
+
+
+def test_enter_play_phase_retries_classifier_connection(monkeypatch):
+    """SPACE from ready should retry if acquisition was started manually."""
+    app = make_app()
+    app.game_phase = main_module.GamePhase.READY_TO_PLAY
+    app.game_manager = SimpleNamespace(start_game=lambda: None)
+    app.calibration_stage = CalibrationStage.IDLE
+
+    calls = []
+    monkeypatch.setattr(
+        app,
+        "_load_classifier_after_training",
+        lambda: calls.append("load") or True,
+    )
+    monkeypatch.setattr(app, "_is_live_bci_mode", lambda: False)
+
+    app._enter_play_phase()
+
+    assert calls == ["load"]

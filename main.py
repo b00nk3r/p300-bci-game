@@ -35,6 +35,7 @@ Usage:
 
 import sys
 import argparse
+import subprocess
 import time
 import random
 import threading
@@ -78,8 +79,10 @@ class GamePhase(Enum):
     PLAYING = auto()        # Live BCI gameplay, test-mode style auto-loop.
 
 
+PROJECT_ROOT = Path(__file__).resolve().parent
 CALIBRATION_TRIALS = 10  # Target directions to record before training.
-EEG_STOP_REQUEST_FILE = Path("data/eeg_recordings/stop_recording.flag")
+EEG_STOP_REQUEST_FILE = PROJECT_ROOT / "data" / "eeg_recordings" / "stop_recording.flag"
+EEG_ACQUISITION_SCRIPT = PROJECT_ROOT / "eeg_acquisition.py"
 
 
 def build_calibration_target_order(trial_count: int) -> list[Direction]:
@@ -175,6 +178,8 @@ class Application:
         self._training_done = False
         self._training_error: str = None
         self._training_status_text = "Preparing training data..."
+        self._eeg_acquisition_process = None
+        self._eeg_acquisition_restarted = False
 
     def initialize(self):
         """Initialize pygame and all components"""
@@ -896,6 +901,61 @@ class Application:
             f"stop requested at {datetime.now().isoformat(timespec='seconds')}\n"
         )
 
+    def _restart_eeg_acquisition_for_online_mode(self) -> bool:
+        """Restart EEG acquisition so online gameplay has a fresh LSL stream."""
+        if (
+            self._eeg_acquisition_process is not None
+            and self._eeg_acquisition_process.poll() is None
+        ):
+            print("EEG acquisition is already running for online mode.")
+            return True
+
+        if not EEG_ACQUISITION_SCRIPT.exists():
+            print(f"WARNING: EEG acquisition script not found: {EEG_ACQUISITION_SCRIPT}")
+            return False
+
+        if EEG_STOP_REQUEST_FILE.exists():
+            EEG_STOP_REQUEST_FILE.unlink()
+
+        try:
+            self._eeg_acquisition_process = subprocess.Popen(
+                [sys.executable, str(EEG_ACQUISITION_SCRIPT)],
+                cwd=str(PROJECT_ROOT),
+            )
+        except OSError as exc:
+            print(f"WARNING: Failed to restart EEG acquisition: {exc}")
+            self._eeg_acquisition_process = None
+            return False
+
+        print(
+            "Restarted EEG acquisition for online mode "
+            f"(pid {self._eeg_acquisition_process.pid})."
+        )
+        time.sleep(1.0)
+        if self._eeg_acquisition_process.poll() is not None:
+            print(
+                "WARNING: EEG acquisition exited immediately "
+                f"with code {self._eeg_acquisition_process.returncode}."
+            )
+            return False
+
+        return True
+
+    def _stop_managed_eeg_acquisition(self):
+        """Stop the acquisition process started by this game instance."""
+        if self._eeg_acquisition_process is None:
+            return
+
+        if self._eeg_acquisition_process.poll() is None:
+            self._request_eeg_recording_stop()
+            try:
+                self._eeg_acquisition_process.wait(timeout=10.0)
+            except subprocess.TimeoutExpired:
+                print("WARNING: EEG acquisition did not stop; terminating it.")
+                self._eeg_acquisition_process.terminate()
+
+        self._eeg_acquisition_process = None
+
     def _run_training_pipeline(self):
         """Background-thread worker that runs preprocess + train."""
         try:
@@ -908,17 +968,34 @@ class Application:
                 n_runs=self._calibration_target_count,
                 after=self._calibration_started_dt,
             )
+            self._training_status_text = "Restarting EEG acquisition for online play..."
+            self._eeg_acquisition_restarted = (
+                self._restart_eeg_acquisition_for_online_mode()
+            )
         except Exception as exc:  # noqa: BLE001
             self._training_error = f"{exc}"
             traceback.print_exc()
             return
 
-        self._training_status_text = "Model trained! Press SPACE to play."
+        if self._eeg_acquisition_restarted:
+            self._training_status_text = "Model trained! Press SPACE to play."
+        else:
+            self._training_status_text = (
+                "Model trained, but EEG acquisition did not restart. "
+                "Start eeg_acquisition.py manually before pressing SPACE."
+            )
         self._training_done = True
 
     def _enter_ready_to_play_phase(self):
         """Transition from TRAINING -> READY_TO_PLAY and load the new model."""
         self.game_phase = GamePhase.READY_TO_PLAY
+        if not self._eeg_acquisition_restarted:
+            self._training_status_text = (
+                "Model trained. Start eeg_acquisition.py manually, "
+                "then press SPACE to play."
+            )
+            return
+
         loaded = self._load_classifier_after_training()
         if not loaded:
             self._training_status_text = (
@@ -932,6 +1009,12 @@ class Application:
         """Transition into live BCI gameplay (test-mode behavior)."""
         if self.game_phase != GamePhase.READY_TO_PLAY:
             return
+
+        from config import BCI_MODE
+
+        if BCI_MODE and self.classifier is None:
+            self._load_classifier_after_training()
+
         self.game_phase = GamePhase.PLAYING
 
         if self.game_manager:
@@ -1509,6 +1592,8 @@ class Application:
 
         if self.classifier:
             self.classifier.stop()
+
+        self._stop_managed_eeg_acquisition()
 
         if self.arrow_manager:
             self.arrow_manager.shutdown()
