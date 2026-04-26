@@ -7,7 +7,7 @@ import pytest
 pygame = pytest.importorskip("pygame")
 
 from config import Config, Direction
-from main import Application, CalibrationStage
+from main import Application, CalibrationStage, build_calibration_target_order
 
 
 class TriggerRecorder:
@@ -55,6 +55,17 @@ def test_start_flashing_stage_restores_current_target():
     assert app.calibration_stage == CalibrationStage.FLASHING
     assert app.arrow_manager.triggers.targets[-1] == Direction.LEFT
     assert len(app.calibration_flash_plan) == app.config.timing.num_sequences * len(Direction.all())
+
+
+def test_calibration_target_order_uses_shuffled_direction_blocks():
+    """Every complete group of four calibration targets should cover all directions."""
+    order = build_calibration_target_order(10)
+
+    assert len(order) == 10
+    assert set(order[:4]) == set(Direction.all())
+    assert set(order[4:8]) == set(Direction.all())
+    assert len(order[8:]) == 2
+    assert set(order[8:]).issubset(set(Direction.all()))
 
 
 def test_arrow_from_idle_starts_live_bci_trial(monkeypatch):

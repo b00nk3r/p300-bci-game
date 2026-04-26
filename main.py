@@ -8,9 +8,9 @@ A Brain-Computer Interface game using P300 evoked potentials
 to control a maze character through flashing arrow stimuli.
 
 The game runs three phases:
-    1. CALIBRATION - press SPACE when ready; then 10 randomly chosen target directions are flashed and
-       EEG / triggers / sessions are recorded so a per-user model can be
-       trained.
+    1. CALIBRATION - press SPACE when ready; then 10 target directions are flashed in
+       shuffled blocks so each full block contains every direction once. EEG /
+       triggers / sessions are recorded so a per-user model can be trained.
     2. TRAINING    - the recorded data is fed to
        ``TOBE_INTEGRATED/preprocess_test_epochs.py`` and an LDA model is
        trained, mirroring ``TOBE_INTEGRATED/SingleTrialLDA_10.ipynb``.
@@ -78,8 +78,27 @@ class GamePhase(Enum):
     PLAYING = auto()        # Live BCI gameplay, test-mode style auto-loop.
 
 
-CALIBRATION_TRIALS = 10  # Random target directions to record before training.
+CALIBRATION_TRIALS = 10  # Target directions to record before training.
 EEG_STOP_REQUEST_FILE = Path("data/eeg_recordings/stop_recording.flag")
+
+
+def build_calibration_target_order(trial_count: int) -> list[Direction]:
+    """Return shuffled direction blocks, with random leftovers if needed."""
+    directions = Direction.all()
+    order = []
+
+    full_blocks, remainder = divmod(trial_count, len(directions))
+    for _ in range(full_blocks):
+        block = directions.copy()
+        random.shuffle(block)
+        order.extend(block)
+
+    if remainder:
+        leftovers = directions.copy()
+        random.shuffle(leftovers)
+        order.extend(leftovers[:remainder])
+
+    return order
 
 
 class Application:
@@ -434,7 +453,7 @@ class Application:
         print("  Classifier: will be loaded after calibration training")
         print()
         print("Flow:")
-        print(f"  1. Calibration: {CALIBRATION_TRIALS} random target trials")
+        print(f"  1. Calibration: {CALIBRATION_TRIALS} block-random target trials")
         print("  2. Training:    LDA fitted from collected EEG")
         print("  3. Play:        live BCI gameplay (test-mode style)")
         print()
@@ -623,10 +642,9 @@ class Application:
         if self.arrow_manager.is_active:
             self.arrow_manager.stop_selection()
 
-        # Pick CALIBRATION_TRIALS random target directions (with repetition).
-        self.calibration_phase_order = [
-            random.choice(Direction.all()) for _ in range(self._calibration_target_count)
-        ]
+        self.calibration_phase_order = build_calibration_target_order(
+            self._calibration_target_count
+        )
         self.calibration_phase_index = 0
         self.calibration_run_start_time = time.perf_counter()
 
@@ -635,7 +653,7 @@ class Application:
         )
         print(
             f"Calibration phase started — {self._calibration_target_count} "
-            f"random-target trials"
+            f"block-random target trials"
         )
         print(f"  Targets: {[d.value for d in self.calibration_phase_order]}")
 

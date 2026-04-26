@@ -222,9 +222,8 @@ def run_pipeline(
 
     stage_test_data(eeg_path, session_pairs, test_dir)
 
-    sys.path.insert(0, str(PROJECT_ROOT / "TOBE_INTEGRATED"))
-    from preprocess_test_epochs import run_preprocessing
-    from train_lda_10 import train_model
+    from TOBE_INTEGRATED.preprocess_test_epochs import run_preprocessing
+    from TOBE_INTEGRATED.train_lda_10 import train_model
 
     npz_path = run_preprocessing(test_dir, test_processed_dir)
     saved_model = train_model(npz_path, model_path, n_runs=n_runs)

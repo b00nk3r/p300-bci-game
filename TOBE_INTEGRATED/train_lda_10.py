@@ -18,21 +18,33 @@ from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-MODEL_PREP_DIR = PROJECT_ROOT / "model preprocessing"
-if str(MODEL_PREP_DIR) not in sys.path:
-    sys.path.insert(0, str(MODEL_PREP_DIR))
 
-from utils import extract_single_trial_features  # noqa: E402
+try:
+    from .config import (
+        N_RUNS_DEFAULT,
+        TRAIN_WINDOW_START_MS,
+        TRAIN_WINDOW_END_MS,
+        TRAIN_DEC_WINDOW,
+        TRAIN_DEC_STEP,
+        LDA_SOLVER,
+        LDA_SHRINKAGE,
+    )
+    from .utils import extract_single_trial_features
+except ImportError:  # Allow direct execution: python TOBE_INTEGRATED/train_lda_10.py
+    from config import (  # type: ignore
+        N_RUNS_DEFAULT,
+        TRAIN_WINDOW_START_MS,
+        TRAIN_WINDOW_END_MS,
+        TRAIN_DEC_WINDOW,
+        TRAIN_DEC_STEP,
+        LDA_SOLVER,
+        LDA_SHRINKAGE,
+    )
+    from utils import extract_single_trial_features  # type: ignore
 
 
 DEFAULT_DATA_PATH = PROJECT_ROOT / "data" / "test_processed" / "clean_epochs.npz"
 DEFAULT_MODEL_PATH = PROJECT_ROOT / "models" / "10trials_model.joblib"
-
-N_RUNS_DEFAULT = 10
-WINDOW_START = 0
-WINDOW_END = 800
-DEC_WINDOW = 20
-DEC_STEP = 10
 
 
 def train_model(
@@ -65,17 +77,17 @@ def train_model(
     n_total = len(is_clean)
     print(f"Loaded: {n_total} epochs")
     print(
-        f"Params: window={WINDOW_START}-{WINDOW_END}ms, "
-        f"dec={DEC_WINDOW}/{DEC_STEP}"
+        f"Params: window={TRAIN_WINDOW_START_MS}-{TRAIN_WINDOW_END_MS}ms, "
+        f"dec={TRAIN_DEC_WINDOW}/{TRAIN_DEC_STEP}"
     )
 
     X, y, days, trial_ids, epoch_dirs, trial_targets = extract_single_trial_features(
         epochs, labels, directions, targets,
         run_indices, day_labels, is_clean,
-        window_start_ms=WINDOW_START,
-        window_end_ms=WINDOW_END,
-        dec_window=DEC_WINDOW,
-        dec_step=DEC_STEP,
+        window_start_ms=TRAIN_WINDOW_START_MS,
+        window_end_ms=TRAIN_WINDOW_END_MS,
+        dec_window=TRAIN_DEC_WINDOW,
+        dec_step=TRAIN_DEC_STEP,
     )
 
     if X.shape[0] == 0:
@@ -84,18 +96,18 @@ def train_model(
             "Check that calibration data was recorded correctly."
         )
 
-    model = LinearDiscriminantAnalysis(solver="lsqr", shrinkage="auto")
+    model = LinearDiscriminantAnalysis(solver=LDA_SOLVER, shrinkage=LDA_SHRINKAGE)
     model.fit(X, y)
 
     artifact = {
         "model_name": "single_trial_lda_calibration",
         "model": model,
-        "model_params": {"solver": "lsqr", "shrinkage": "auto"},
+        "model_params": {"solver": LDA_SOLVER, "shrinkage": LDA_SHRINKAGE},
         "feature_params": {
-            "window_start_ms": WINDOW_START,
-            "window_end_ms": WINDOW_END,
-            "dec_window": DEC_WINDOW,
-            "dec_step": DEC_STEP,
+            "window_start_ms": TRAIN_WINDOW_START_MS,
+            "window_end_ms": TRAIN_WINDOW_END_MS,
+            "dec_window": TRAIN_DEC_WINDOW,
+            "dec_step": TRAIN_DEC_STEP,
         },
         "feature_normalization": "none",
         "n_train_runs": n_runs,

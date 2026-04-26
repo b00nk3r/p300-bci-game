@@ -3,9 +3,7 @@ Preprocess calibration epochs collected by the live game.
 
 This is a path-aware version of the original TOBE_INTEGRATED preprocessing
 script. It can be run from any working directory because all paths are
-resolved relative to the project root, and the model preprocessing utility
-package is added to sys.path so its `config` and `utils` modules can be
-imported.
+resolved relative to the project root.
 """
 
 from __future__ import annotations
@@ -21,27 +19,41 @@ import h5py
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-MODEL_PREP_DIR = PROJECT_ROOT / "model preprocessing"
-if str(MODEL_PREP_DIR) not in sys.path:
-    sys.path.insert(0, str(MODEL_PREP_DIR))
 
-
-from config import (  # noqa: E402  (path injected above)
-    SR,
-    EPOCH_PRE_MS,
-    EPOCH_POST_MS,
-    DIRECTION_MAP,
-)
-from utils import (  # noqa: E402
-    parse_trigger_file,
-    compute_recording_offset,
-    extract_epochs,
-    apply_bandpass_filter,
-    detect_bad_channels,
-    apply_car,
-    apply_baseline_correction,
-    reject_artifacts,
-)
+try:
+    from .config import (
+        SR,
+        EPOCH_PRE_MS,
+        EPOCH_POST_MS,
+        DIRECTION_MAP,
+    )
+    from .utils import (
+        parse_trigger_file,
+        compute_recording_offset,
+        extract_epochs,
+        apply_bandpass_filter,
+        detect_bad_channels,
+        apply_car,
+        apply_baseline_correction,
+        reject_artifacts,
+    )
+except ImportError:  # Allow direct execution: python TOBE_INTEGRATED/preprocess_test_epochs.py
+    from config import (  # type: ignore
+        SR,
+        EPOCH_PRE_MS,
+        EPOCH_POST_MS,
+        DIRECTION_MAP,
+    )
+    from utils import (  # type: ignore
+        parse_trigger_file,
+        compute_recording_offset,
+        extract_epochs,
+        apply_bandpass_filter,
+        detect_bad_channels,
+        apply_car,
+        apply_baseline_correction,
+        reject_artifacts,
+    )
 
 
 DEFAULT_TEST_DATA_DIR = PROJECT_ROOT / "data" / "test"
