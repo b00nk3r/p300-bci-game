@@ -1,5 +1,6 @@
 import sys
 import time
+from pathlib import Path
 import numpy as np
 from scipy.signal import butter, sosfilt, sosfilt_zi
 
@@ -29,6 +30,7 @@ STREAM_NAME = "gNautilus"
 STREAM_TYPE = "EEG"
 SCAN_COUNT = 64
 HDF5_OUTPUT_DIR = "data/eeg_recordings"
+STOP_REQUEST_FILE = Path(HDF5_OUTPUT_DIR) / "stop_recording.flag"
 
 BANDPASS_LOW_HZ = 0.1
 BANDPASS_HIGH_HZ = 100.0
@@ -108,6 +110,9 @@ class RealtimeEEGFilter:
 
 def main():
     print("P300 BCI — EEG Acquisition (g.Nautilus → LSL)")
+    STOP_REQUEST_FILE.parent.mkdir(parents=True, exist_ok=True)
+    if STOP_REQUEST_FILE.exists():
+        STOP_REQUEST_FILE.unlink()
 
     print("\nSearching for connected devices...")
     devices = pygds.ConnectedDevices()
@@ -216,6 +221,11 @@ def main():
 
         nonlocal samples_sent, last_report, running
 
+        if STOP_REQUEST_FILE.exists():
+            running = False
+            print("\nStop request received from game. Finalizing HDF5...")
+            return False
+
         if not running:
             return False
 
@@ -272,6 +282,8 @@ def main():
         saved_path = recorder.close()
         if saved_path:
             print(f"HDF5 saved: {saved_path}")
+        if STOP_REQUEST_FILE.exists():
+            STOP_REQUEST_FILE.unlink()
 
     # ── Cleanup ──────────────────────────────────────────────────────
     print("Closing device...")

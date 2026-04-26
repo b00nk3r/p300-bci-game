@@ -7,8 +7,8 @@ Salem State University Capstone Project
 A Brain-Computer Interface game using P300 evoked potentials
 to control a maze character through flashing arrow stimuli.
 
-The game runs three phases automatically:
-    1. CALIBRATION - 10 randomly chosen target directions are flashed and
+The game runs three phases:
+    1. CALIBRATION - press SPACE when ready; then 10 randomly chosen target directions are flashed and
        EEG / triggers / sessions are recorded so a per-user model can be
        trained.
     2. TRAINING    - the recorded data is fed to
@@ -20,7 +20,7 @@ The game runs three phases automatically:
        selections, as in the ``test_mode`` branch).
 
 Controls:
-    SPACE  - Start playing once the model is trained
+    SPACE  - Start calibration, then start playing once the model is trained
     D      - Toggle debug overlay
     ESC    - Quit
     Arrows - Manual movement fallback during play
@@ -41,6 +41,7 @@ import threading
 import traceback
 from datetime import datetime
 from enum import Enum, auto
+from pathlib import Path
 
 import pygame
 
@@ -78,6 +79,7 @@ class GamePhase(Enum):
 
 
 CALIBRATION_TRIALS = 10  # Random target directions to record before training.
+EEG_STOP_REQUEST_FILE = Path("data/eeg_recordings/stop_recording.flag")
 
 
 class Application:
@@ -208,9 +210,6 @@ class Application:
 
         # Print startup info
         self._print_startup_info()
-
-        # Auto-start calibration so the player just runs `python main.py`.
-        self._start_calibration_phase()
         
     def _calculate_scaling(self):
         """Calculate scale factor and offset for resolution-independent rendering.
@@ -440,7 +439,8 @@ class Application:
         print("  3. Play:        live BCI gameplay (test-mode style)")
         print()
         print("Controls:")
-        print("  SPACE  - Start playing once the model is trained")
+        print("  SPACE  - Start calibration / start playing once trained")
+        print("  S      - Open settings panel")
         print("  D      - Toggle debug info")
         print("  R      - Restart current game (only after training)")
         print("  1-4    - Simulate BCI selection (Up/Down/Left/Right)")
@@ -510,9 +510,12 @@ class Application:
             self.running = False
             return
 
-        # SPACE only does something in READY_TO_PLAY (start gameplay) or
+        # SPACE starts calibration first, then later starts gameplay or
         # during PLAYING (resume from waiting / start the next BCI trial).
         if key == pygame.K_SPACE:
+            if self.game_phase == GamePhase.BOOT:
+                self._start_calibration_phase()
+                return
             if self.game_phase == GamePhase.READY_TO_PLAY:
                 self._enter_play_phase()
                 return
@@ -543,7 +546,12 @@ class Application:
 
         # Toggle settings panel
         if key == pygame.K_s:
-            if self.game_phase == GamePhase.PLAYING:
+            if self.game_phase in (
+                GamePhase.BOOT,
+                GamePhase.CALIBRATING,
+                GamePhase.READY_TO_PLAY,
+                GamePhase.PLAYING,
+            ):
                 self._toggle_settings()
             return
 
@@ -849,11 +857,12 @@ class Application:
         self.game_phase = GamePhase.TRAINING
         self._training_done = False
         self._training_error = None
-        self._training_status_text = "Preprocessing calibration data..."
+        self._training_status_text = "Stopping EEG recording..."
         print(
             f"All {self._calibration_target_count} calibration trials recorded."
-            " Starting training..."
+            " Stopping EEG recording before training..."
         )
+        self._request_eeg_recording_stop()
 
         self._training_thread = threading.Thread(
             target=self._run_training_pipeline,
@@ -862,12 +871,21 @@ class Application:
         )
         self._training_thread.start()
 
+    def _request_eeg_recording_stop(self):
+        """Ask the separate eeg_acquisition.py process to close its H5 file."""
+        EEG_STOP_REQUEST_FILE.parent.mkdir(parents=True, exist_ok=True)
+        EEG_STOP_REQUEST_FILE.write_text(
+            f"stop requested at {datetime.now().isoformat(timespec='seconds')}\n"
+        )
+
     def _run_training_pipeline(self):
         """Background-thread worker that runs preprocess + train."""
         try:
             from train_calibration_pipeline import run_pipeline
 
-            self._training_status_text = "Preprocessing calibration data..."
+            self._training_status_text = (
+                "Waiting for EEG recording to close, then preprocessing..."
+            )
             run_pipeline(
                 n_runs=self._calibration_target_count,
                 after=self._calibration_started_dt,
@@ -1059,9 +1077,25 @@ class Application:
         if self.settings_panel.is_visible:
             self.settings_panel.hide()
         else:
-            # Don't open settings during active selection
-            if self.arrow_manager.is_active or self._is_calibration_active():
+            if self.arrow_manager.is_active:
                 print("Cannot open settings during active selection")
+                return
+
+            # Calibration writes one session/trigger pair per trial. Do not
+            # reinitialize the arrow manager while a calibration trial is open.
+            if self.game_phase == GamePhase.CALIBRATING and self._is_calibration_active():
+                print(
+                    "Cannot open settings during an active calibration trial. "
+                    "Adjust settings before pressing SPACE to start calibration."
+                )
+                return
+
+            if self.calibration_stage in (
+                CalibrationStage.INSTRUCTION,
+                CalibrationStage.PRE_FLASH,
+                CalibrationStage.FLASHING,
+            ):
+                print("Cannot open settings while arrows are flashing")
                 return
                 
             # Update panel with current values
@@ -1169,8 +1203,13 @@ class Application:
             elif self.game_phase == GamePhase.PLAYING:
                 self.arrow_manager.update()
 
-        # Only update the game (movement, animations) once we're playing.
-        if self.game_phase == GamePhase.PLAYING and self.game_manager:
+        # Keep the visible maze/donut scene alive during setup and calibration.
+        if self.game_phase in (
+            GamePhase.BOOT,
+            GamePhase.CALIBRATING,
+            GamePhase.READY_TO_PLAY,
+            GamePhase.PLAYING,
+        ) and self.game_manager:
             self.game_manager.update(delta_ms)
         
     def _draw(self):
@@ -1183,14 +1222,21 @@ class Application:
         # Clear render surface
         self.render_surface.fill(self.config.display.background_color)
 
-        # Game world is only visible during PLAYING (and on the win screen).
-        if self.game_manager and self.game_phase == GamePhase.PLAYING:
+        # Keep the maze/donuts visible during setup, calibration, and play.
+        if self.game_manager and self.game_phase in (
+            GamePhase.BOOT,
+            GamePhase.CALIBRATING,
+            GamePhase.READY_TO_PLAY,
+            GamePhase.PLAYING,
+        ):
             self.game_manager.draw(self.render_surface)
 
         # Draw arrows / calibration stimulus on top of the game.
-        if self.game_phase == GamePhase.CALIBRATING:
+        if self.game_phase == GamePhase.BOOT:
+            self.arrow_manager.draw(self.render_surface)
+            self._draw_boot_overlay()
+        elif self.game_phase == GamePhase.CALIBRATING:
             self._draw_calibration_stimulus()
-            self._draw_calibration_overlay()
         elif self.game_phase == GamePhase.TRAINING:
             self._draw_training_overlay()
         elif self.game_phase == GamePhase.READY_TO_PLAY:
@@ -1312,27 +1358,22 @@ class Application:
             text_rect = text.get_rect(center=center)
             self.render_surface.blit(text, text_rect)
 
-    def _draw_calibration_overlay(self):
-        """Draw progress text for the data-collection calibration phase."""
-        progress = (
-            f"Calibration trial "
-            f"{self._calibration_completed_count + 1}/"
-            f"{self._calibration_target_count}"
+    def _draw_boot_overlay(self):
+        """Show the pre-calibration prompt centered in the arrow area."""
+        panel_rect = self.arrow_manager.get_panel_rect()
+        center = panel_rect.center if panel_rect else (
+            DESIGN_WIDTH // 2,
+            DESIGN_HEIGHT // 2,
         )
-        progress_surface = self.font_medium.render(progress, True, (180, 180, 180))
-        progress_rect = progress_surface.get_rect(
-            center=(DESIGN_WIDTH // 2, DESIGN_HEIGHT - 120)
+        prompt = self.font_large.render(
+            "Press SPACE to start calibration", True, (220, 220, 220)
         )
-        self.render_surface.blit(progress_surface, progress_rect)
+        prompt_rect = prompt.get_rect(center=center)
+        self.render_surface.blit(prompt, prompt_rect)
 
-        hint_surface = self.font_small.render(
-            "Look at the arrow named on screen — keep your gaze on it.",
-            True, (130, 130, 130),
-        )
-        hint_rect = hint_surface.get_rect(
-            center=(DESIGN_WIDTH // 2, DESIGN_HEIGHT - 80)
-        )
-        self.render_surface.blit(hint_surface, hint_rect)
+    def _draw_calibration_overlay(self):
+        """Reserved for future calibration UI; intentionally draws no text."""
+        return
 
     def _draw_training_overlay(self):
         """Show the training-progress message centered on screen."""

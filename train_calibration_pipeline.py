@@ -65,6 +65,50 @@ def find_latest_eeg_recording(eeg_dir: Path) -> Path:
     return candidates[-1]
 
 
+def wait_for_eeg_recording_ready(
+    eeg_path: Path,
+    timeout_s: float = 60.0,
+    poll_s: float = 1.0,
+) -> None:
+    """Wait until the H5 recording looks closed and stable enough to copy."""
+    deadline = time.perf_counter() + timeout_s
+    last_size = -1
+    stable_count = 0
+
+    while time.perf_counter() < deadline:
+        try:
+            current_size = eeg_path.stat().st_size
+            if current_size == last_size:
+                stable_count += 1
+            else:
+                stable_count = 0
+                last_size = current_size
+
+            # Opening the file through h5py fails while the writer still has
+            # the HDF5 metadata in an inconsistent/incomplete state.
+            import h5py
+
+            with h5py.File(eeg_path, "r") as f:
+                has_required_data = (
+                    "samples" in f
+                    and "unix_timestamps" in f
+                    and f["samples"].shape[0] > 0
+                    and f["unix_timestamps"].shape[0] > 0
+                )
+
+            if has_required_data and stable_count >= 1:
+                return
+        except OSError:
+            # Expected while the acquisition process is still finalizing.
+            pass
+
+        time.sleep(poll_s)
+
+    raise RuntimeError(
+        f"Timed out waiting for EEG recording to finish closing: {eeg_path}"
+    )
+
+
 def collect_recent_session_pairs(
     sessions_dir: Path,
     n_runs: int,
@@ -166,6 +210,8 @@ def run_pipeline(
 
     eeg_path = find_latest_eeg_recording(eeg_dir)
     print(f"EEG recording: {eeg_path.name}")
+    print("Waiting for EEG recording to finish closing...")
+    wait_for_eeg_recording_ready(eeg_path)
 
     session_pairs = collect_recent_session_pairs(
         sessions_dir, n_runs=n_runs, after=after
