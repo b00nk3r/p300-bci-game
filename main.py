@@ -358,7 +358,10 @@ class Application:
             self._toggle_settings()
             
         elif key == pygame.K_r:
-            if self.game_manager:
+            if self._is_calibration_active():
+                print("Cannot restart during an active trial")
+                return
+            elif self.game_manager:
                 self.game_manager.restart_level()
                 print("Level restarted")
         elif key == pygame.K_n:
