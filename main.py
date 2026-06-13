@@ -9,11 +9,13 @@ import pygame
 from config import Config, Direction
 from src.stimulus.arrow_manager import ArrowManager, SelectionState, SelectionResult
 from src.ui.settings_panel import SettingsPanel, SettingsValues
-from src.game.game_manager import GameManager, GameManagerConfig, GameState
+from src.game.game_manager import GameManager, GameManagerConfig
 from src.data.session_logger import SessionLogger
 
 DESIGN_WIDTH = 3072
 DESIGN_HEIGHT = 1920
+
+DIRECTIONS_PER_SEQUENCE = len(Direction.all())
 
 
 class CalibrationStage(Enum):
@@ -24,15 +26,6 @@ class CalibrationStage(Enum):
 
 
 class Application:
-    """
-    Main application class for P300 BCI Game.
-    
-    Manages:
-    - Pygame initialization and main loop
-    - Arrow stimulus system (via ArrowManager)
-    - Game state (maze - TODO)
-    - User input handling
-    """
     
     def __init__(self, config: Config):
         self.config = config
@@ -309,6 +302,7 @@ class Application:
         print("  R      - Restart current level")
         print("  N      - Skip to next level")
         print("  ESC    - Quit")
+        print("  SPACE  - Start calibration run")
         print()
         print("=" * 50)
         print()
@@ -395,7 +389,6 @@ class Application:
         self.calibration_phase_index = 0
         self.calibration_run_start_time = time.perf_counter()
 
-        # Start one session for the whole 4-phase run.
         if self.session_logger:
             self.session_logger.start_session(
                 flash_duration_ms=self.config.timing.flash_duration_ms,
@@ -528,7 +521,7 @@ class Application:
             and now >= self.calibration_current_flash_end_time
         ):
             direction = self.calibration_current_flash
-            sequence = self.calibration_flash_index // 4
+            sequence = self.calibration_flash_index // DIRECTIONS_PER_SEQUENCE
 
             self.calibration_flash_states[direction] = False
             timestamp_ms = (now - self.calibration_run_start_time) * 1000.0
@@ -549,7 +542,7 @@ class Application:
             and now >= self.calibration_next_flash_time
         ):
             direction = self.calibration_flash_plan[self.calibration_flash_index]
-            sequence = self.calibration_flash_index // 4
+            sequence = self.calibration_flash_index // DIRECTIONS_PER_SEQUENCE
 
             self._set_calibration_idle_arrows()
             self.calibration_flash_states[direction] = True
@@ -668,7 +661,7 @@ class Application:
             self.arrow_manager.renderer.draw(self.render_surface, self.calibration_flash_states)
         else:
             # Draw panel with empty states — may render background/border without arrows
-            self.arrow_manager.renderer.draw(self.render_surface, {})
+            self.arrow_manager.renderer.draw(self.render_surface, self.calibration_flash_states)
 
         # Overlay instruction text during INSTRUCTION stage
         if (
