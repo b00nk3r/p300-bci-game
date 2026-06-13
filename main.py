@@ -16,6 +16,7 @@ from src.data.session_logger import SessionLogger
 DESIGN_WIDTH = 3072
 DESIGN_HEIGHT = 1920
 
+DIRECTIONS_PER_SEQUENCE = len(Direction.all())
 
 class TrialStage(Enum):
     IDLE = auto()
@@ -89,8 +90,6 @@ class Application:
         self.font_small = None
 
         self.trial_stage = TrialStage.IDLE
-        self.trial_phase_order = []
-        self.trial_phase_index = 0
         self.trial_stage_start_time = 0.0
         self.trial_run_start_time = 0.0
 
@@ -388,8 +387,6 @@ class Application:
         if self.arrow_manager.is_active:
             self.arrow_manager.stop_selection()
 
-        self.trial_phase_order = [None] # Take care of this later
-        self.trial_phase_index = 0
         self.trial_run_start_time = time.perf_counter()
 
         if self.classifier:
@@ -470,8 +467,6 @@ class Application:
         was_active = self._is_trial_active()
 
         self.trial_stage = TrialStage.IDLE
-        self.trial_phase_order = []
-        self.trial_phase_index = 0
         self.trial_stage_start_time = 0.0
         self.trial_flash_plan = []
         self.trial_flash_index = 0
@@ -502,7 +497,6 @@ class Application:
             self._update_trial_flashing(now)
             return
 
-
         if self.trial_stage == TrialStage.BREAK:
             if elapsed_stage_ms >= self.trial_break_ms:
                 self._advance_trial_phase()
@@ -513,7 +507,7 @@ class Application:
             and now >= self.trial_current_flash_end_time
         ):
             direction = self.trial_current_flash
-            sequence = self.trial_flash_index // 4
+            sequence = self.trial_flash_index // DIRECTIONS_PER_SEQUENCE
 
             self.trial_flash_states[direction] = False
             timestamp_ms = (now - self.trial_run_start_time) * 1000.0
@@ -553,7 +547,7 @@ class Application:
             and now >= self.trial_next_flash_time
         ):
             direction = self.trial_flash_plan[self.trial_flash_index]
-            sequence = self.trial_flash_index // 4
+            sequence = self.trial_flash_index // DIRECTIONS_PER_SEQUENCE
 
             self._set_trial_idle_arrows()
             self.trial_flash_states[direction] = True
@@ -565,7 +559,7 @@ class Application:
             timestamp_ms = (now - self.trial_run_start_time) * 1000.0
             self.arrow_manager.triggers.send_flash(direction)
 
-            if  self.classifier is not None:
+            if self.classifier is not None:
                 try:
                     from pylsl import local_clock
                     ts = local_clock()
