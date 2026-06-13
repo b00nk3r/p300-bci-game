@@ -365,6 +365,9 @@ class Application:
                 self.game_manager.restart_level()
                 print("Level restarted")
         elif key == pygame.K_n:
+            if self._is_calibration_active():
+                print("Cannot skip levels during an active trial")
+                return
             if self.game_manager:
                 self.game_manager.next_level()
                 print(f"Advanced to level {self.game_manager.stats.level}")
@@ -660,11 +663,7 @@ class Application:
         pygame.display.flip()
 
     def _draw_calibration_stimulus(self):
-        if self.calibration_stage == CalibrationStage.FLASHING:
-            self.arrow_manager.renderer.draw(self.render_surface, self.calibration_flash_states)
-        else:
-            # Draw panel with empty states — may render background/border without arrows
-            self.arrow_manager.renderer.draw(self.render_surface, self.calibration_flash_states)
+        self.arrow_manager.renderer.draw(self.render_surface, self.calibration_flash_states)
 
         # Overlay instruction text during INSTRUCTION stage
         if (
