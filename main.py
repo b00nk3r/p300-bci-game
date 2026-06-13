@@ -21,7 +21,6 @@ class TrialStage(Enum):
     IDLE = auto()
     FLASHING = auto()
     BREAK = auto()
-    WAITING = auto()
 
 class MockClassifier:
     
@@ -89,20 +88,20 @@ class Application:
         self.font_medium = None
         self.font_small = None
 
-        self.calibration_stage = TrialStage.IDLE
-        self.calibration_phase_order = []
-        self.calibration_phase_index = 0
-        self.calibration_stage_start_time = 0.0
-        self.calibration_run_start_time = 0.0
+        self.trial_stage = TrialStage.IDLE
+        self.trial_phase_order = []
+        self.trial_phase_index = 0
+        self.trial_stage_start_time = 0.0
+        self.trial_run_start_time = 0.0
 
-        self.calibration_flash_states = {d: False for d in Direction.all()}
-        self.calibration_flash_plan = []
-        self.calibration_flash_index = 0
-        self.calibration_current_flash = None
-        self.calibration_current_flash_end_time = 0.0
-        self.calibration_next_flash_time = 0.0
+        self.trial_flash_states = {d: False for d in Direction.all()}
+        self.trial_flash_plan = []
+        self.trial_flash_index = 0
+        self.trial_current_flash = None
+        self.trial_current_flash_end_time = 0.0
+        self.trial_next_flash_time = 0.0
 
-        self.calibration_break_ms = 10000  # 15-second gap between selections
+        self.trial_break_ms = 10000  # 10-second gap between selections
 
     def initialize(self):
         pygame.init()
@@ -210,6 +209,7 @@ class Application:
             except Exception as e:
                 print(f"WARNING: Classifier init failed ({e}). Using mock classifier.")
                 self.classifier = MockClassifier()
+                self.classifier.start()
         else:
             self.classifier = MockClassifier()
             self.classifier.start()
@@ -318,7 +318,6 @@ class Application:
         print()
         print("Controls:")
         print("  SPACE  - Start continuous BCI trials (auto-loops with 10s gaps)")
-        print("  Arrows - Manually start a labeled trial for a specific direction")
         print("  S      - Open settings panel")
         print("  R      - Restart game")
         print("  ESC    - Quit")
@@ -354,24 +353,13 @@ class Application:
                     
             if event.type == pygame.KEYDOWN:
                 self._handle_keydown(event.key)
-
-
-    @staticmethod
-    def _direction_from_key(key: int):
-        key_map = {
-            pygame.K_UP: Direction.UP,
-            pygame.K_DOWN: Direction.DOWN,
-            pygame.K_LEFT: Direction.LEFT,
-            pygame.K_RIGHT: Direction.RIGHT,
-        }
-        return key_map.get(key)
                 
     def _handle_keydown(self, key: int):
         if key == pygame.K_ESCAPE:
             self.running = False
             
         elif key == pygame.K_SPACE:
-            if self.calibration_stage in (TrialStage.IDLE, TrialStage.WAITING):
+            if self.trial_stage is TrialStage.IDLE:
                 self._start_live_bci_trial()
             else:
                 print("BCI trial already running")
@@ -384,15 +372,14 @@ class Application:
                 self.game_manager.start_game()
                 print("Game restarted")
             
-    def _is_calibration_active(self) -> bool:
-        return self.calibration_stage != TrialStage.IDLE
+    def _is_trial_active(self) -> bool:
+        return self.trial_stage != TrialStage.IDLE
 
 
     def _start_live_bci_trial(self):
 
-        if self._is_calibration_active() and self.calibration_stage not in (
+        if self._is_trial_active() and self.trial_stage not in (
             TrialStage.IDLE,
-            TrialStage.WAITING,
             TrialStage.BREAK,
         ):
             print("BCI trial already running")
@@ -401,9 +388,9 @@ class Application:
         if self.arrow_manager.is_active:
             self.arrow_manager.stop_selection()
 
-        self.calibration_phase_order = [None] # Take care of this later
-        self.calibration_phase_index = 0
-        self.calibration_run_start_time = time.perf_counter()
+        self.trial_phase_order = [None] # Take care of this later
+        self.trial_phase_index = 0
+        self.trial_run_start_time = time.perf_counter()
 
         if self.classifier:
             self.classifier.clear_events()
@@ -437,36 +424,36 @@ class Application:
         self.arrow_manager.triggers.set_current_target(None)
         self.arrow_manager.triggers.send_trial_start()
 
-        self._set_calibration_idle_arrows()
+        self._set_trial_idle_arrows()
         self._start_flashing_stage()
         print("BCI trial started")
 
-    def _set_calibration_idle_arrows(self):
-        self.calibration_flash_states = {d: False for d in Direction.all()}
-        self.calibration_current_flash = None
-        self.calibration_current_flash_end_time = 0.0
+    def _set_trial_idle_arrows(self):
+        self.trial_flash_states = {d: False for d in Direction.all()}
+        self.trial_current_flash = None
+        self.trial_current_flash_end_time = 0.0
 
     def _start_flashing_stage(self):
         self.arrow_manager.triggers.set_current_target(None)
 
-        self.calibration_stage = TrialStage.FLASHING
-        self.calibration_stage_start_time = time.perf_counter()
-        self._set_calibration_idle_arrows()
+        self.trial_stage = TrialStage.FLASHING
+        self.trial_stage_start_time = time.perf_counter()
+        self._set_trial_idle_arrows()
 
-        self.calibration_flash_plan = []
+        self.trial_flash_plan = []
         for _ in range(self.config.timing.num_sequences):
             sequence_order = Direction.all()
             random.shuffle(sequence_order)
-            self.calibration_flash_plan.extend(sequence_order)
+            self.trial_flash_plan.extend(sequence_order)
 
-        self.calibration_flash_index = 0
-        self.calibration_next_flash_time = time.perf_counter()  # Start immediately
+        self.trial_flash_index = 0
+        self.trial_next_flash_time = time.perf_counter()  # Start immediately
 
     def _start_break_stage(self):
-        self.calibration_stage = TrialStage.BREAK
-        self.calibration_stage_start_time = time.perf_counter()
+        self.trial_stage = TrialStage.BREAK
+        self.trial_stage_start_time = time.perf_counter()
         self.arrow_manager.triggers.set_current_target(None)
-        self._set_calibration_idle_arrows()
+        self._set_trial_idle_arrows()
 
     def _finalize_live_bci_trial(self, selected_direction: Direction = None):
         self.arrow_manager.triggers.send_trial_end()
@@ -475,21 +462,21 @@ class Application:
         if self.session_logger and self.session_logger.is_active:
             self.session_logger.end_session(selected_direction=selected_direction)
 
-    def _advance_calibration_phase(self):
+    def _advance_trial_phase(self):
         self._start_live_bci_trial()
 
 
-    def _finish_calibration_run(self, cancelled: bool = False):
-        was_active = self._is_calibration_active()
+    def _finish_trial_run(self, cancelled: bool = False):
+        was_active = self._is_trial_active()
 
-        self.calibration_stage = TrialStage.IDLE
-        self.calibration_phase_order = []
-        self.calibration_phase_index = 0
-        self.calibration_stage_start_time = 0.0
-        self.calibration_flash_plan = []
-        self.calibration_flash_index = 0
-        self.calibration_next_flash_time = 0.0
-        self._set_calibration_idle_arrows()
+        self.trial_stage = TrialStage.IDLE
+        self.trial_phase_order = []
+        self.trial_phase_index = 0
+        self.trial_stage_start_time = 0.0
+        self.trial_flash_plan = []
+        self.trial_flash_index = 0
+        self.trial_next_flash_time = 0.0
+        self._set_trial_idle_arrows()
 
         if was_active:
             self.arrow_manager.triggers.set_current_target(None)
@@ -507,37 +494,35 @@ class Application:
         else:
             print("BCI trial complete")
 
-    def _update_calibration_run(self):
+    def _update_trial_run(self):
         now = time.perf_counter()
-        elapsed_stage_ms = (now - self.calibration_stage_start_time) * 1000.0
+        elapsed_stage_ms = (now - self.trial_stage_start_time) * 1000.0
 
-        if self.calibration_stage == TrialStage.FLASHING:
-            self._update_calibration_flashing(now)
+        if self.trial_stage == TrialStage.FLASHING:
+            self._update_trial_flashing(now)
             return
 
-        if self.calibration_stage == TrialStage.WAITING:
-            return
 
-        if self.calibration_stage == TrialStage.BREAK:
-            if elapsed_stage_ms >= self.calibration_break_ms:
-                self._advance_calibration_phase()
+        if self.trial_stage == TrialStage.BREAK:
+            if elapsed_stage_ms >= self.trial_break_ms:
+                self._advance_trial_phase()
 
-    def _update_calibration_flashing(self, now: float):
+    def _update_trial_flashing(self, now: float):
         if (
-            self.calibration_current_flash is not None
-            and now >= self.calibration_current_flash_end_time
+            self.trial_current_flash is not None
+            and now >= self.trial_current_flash_end_time
         ):
-            direction = self.calibration_current_flash
-            sequence = self.calibration_flash_index // 4
+            direction = self.trial_current_flash
+            sequence = self.trial_flash_index // 4
 
-            self.calibration_flash_states[direction] = False
-            timestamp_ms = (now - self.calibration_run_start_time) * 1000.0
+            self.trial_flash_states[direction] = False
+            timestamp_ms = (now - self.trial_run_start_time) * 1000.0
             self._on_flash_end(direction, sequence, timestamp_ms)
 
-            self.calibration_current_flash = None
-            self.calibration_flash_index += 1
+            self.trial_current_flash = None
+            self.trial_flash_index += 1
 
-            if self.calibration_flash_index >= len(self.calibration_flash_plan):
+            if self.trial_flash_index >= len(self.trial_flash_plan):
                 selected_direction = None
                 if self.classifier:
                     result = self.classifier.classify_trial()
@@ -560,53 +545,45 @@ class Application:
                 self._start_break_stage()
                 return
 
-            self.calibration_next_flash_time = now + (self.config.timing.isi_ms / 1000.0)
+            self.trial_next_flash_time = now + (self.config.timing.isi_ms / 1000.0)
 
         if (
-            self.calibration_current_flash is None
-            and self.calibration_flash_index < len(self.calibration_flash_plan)
-            and now >= self.calibration_next_flash_time
+            self.trial_current_flash is None
+            and self.trial_flash_index < len(self.trial_flash_plan)
+            and now >= self.trial_next_flash_time
         ):
-            direction = self.calibration_flash_plan[self.calibration_flash_index]
-            sequence = self.calibration_flash_index // 4
+            direction = self.trial_flash_plan[self.trial_flash_index]
+            sequence = self.trial_flash_index // 4
 
-            self._set_calibration_idle_arrows()
-            self.calibration_flash_states[direction] = True
-            self.calibration_current_flash = direction
-            self.calibration_current_flash_end_time = (
+            self._set_trial_idle_arrows()
+            self.trial_flash_states[direction] = True
+            self.trial_current_flash = direction
+            self.trial_current_flash_end_time = (
                 now + (self.config.timing.flash_duration_ms / 1000.0)
             )
 
-            timestamp_ms = (now - self.calibration_run_start_time) * 1000.0
+            timestamp_ms = (now - self.trial_run_start_time) * 1000.0
             self.arrow_manager.triggers.send_flash(direction)
 
-            if self.arrow_manager.classifier is not None:
+            if  self.classifier is not None:
                 try:
                     from pylsl import local_clock
                     ts = local_clock()
                 except ImportError:
                     ts = time.perf_counter()
-                self.arrow_manager.classifier.record_flash(
+                self.classifier.record_flash(
                     direction=direction.value,
                     timestamp=ts,
                 )
 
             self._on_flash_start(direction, sequence, timestamp_ms)
-            
-    def _manual_move(self, direction: Direction):
-        if self.game_manager and self.game_manager.can_accept_input:
-            moved = self.game_manager.move_player(direction)
-            if moved:
-                print(f"Manual move: {direction.value}")
-            else:
-                print(f"Manual move: {direction.value} (blocked)")
         
     def _toggle_settings(self):
         if self.settings_panel.is_visible:
             self.settings_panel.hide()
         else:
             # Don't open settings during active selection
-            if self.arrow_manager.is_active or self._is_calibration_active():
+            if self.arrow_manager.is_active or self._is_trial_active():
                 print("Cannot open settings during active selection")
                 return
                 
@@ -681,7 +658,7 @@ class Application:
     def _on_game_over(self, stats):
         print(f"Game finished! Score: {stats.score}")
         # Stop any active BCI trial / calibration run so arrows freeze.
-        self._finish_calibration_run(cancelled=False)
+        self._finish_trial_run(cancelled=False)
         
     def _on_item_collected(self, points: int):
         pass # Take care of this later
@@ -693,8 +670,8 @@ class Application:
         delta_ms = self.clock.get_time()
         
         if not self._is_game_over():
-            if self._is_calibration_active():
-                self._update_calibration_run()
+            if self._is_trial_active():
+                self._update_trial_run()
         
         if self.game_manager:
             self.game_manager.update(delta_ms)
@@ -706,8 +683,8 @@ class Application:
             self.game_manager.draw(self.render_surface)
         
         if not self._is_game_over():
-            if self.calibration_stage in (TrialStage.IDLE, TrialStage.FLASHING):
-                self.arrow_manager.renderer.draw(self.render_surface, self.calibration_flash_states)
+            if self.trial_stage in (TrialStage.IDLE, TrialStage.FLASHING):
+                self.arrow_manager.renderer.draw(self.render_surface, self.trial_flash_states)
             self._draw_trial_overlay()
             
         if self.settings_panel:
@@ -724,28 +701,23 @@ class Application:
         pygame.display.flip()
 
     def _draw_trial_overlay(self):
-        if self.calibration_stage in (TrialStage.IDLE, TrialStage.FLASHING):
+        if self.trial_stage in (TrialStage.IDLE, TrialStage.FLASHING):
             return
 
         panel_rect = self.arrow_manager.get_panel_rect()
         center = panel_rect.center if panel_rect else (DESIGN_WIDTH // 2, DESIGN_HEIGHT // 2)
 
-        if self.calibration_stage == TrialStage.BREAK:
-            elapsed_ms = (time.perf_counter() - self.calibration_stage_start_time) * 1000.0
-            remaining_ms = self.calibration_break_ms - elapsed_ms
+        if self.trial_stage == TrialStage.BREAK:
+            elapsed_ms = (time.perf_counter() - self.trial_stage_start_time) * 1000.0
+            remaining_ms = self.trial_break_ms - elapsed_ms
             if remaining_ms <= 3000:
                 text = self.font_large.render("Get ready...", True, (130, 130, 130))
                 text_rect = text.get_rect(center=center)
                 self.render_surface.blit(text, text_rect)
-
-        elif self.calibration_stage == TrialStage.WAITING:
-            text = self.font_large.render("Press SPACE", True, (160, 160, 160))
-            text_rect = text.get_rect(center=center)
-            self.render_surface.blit(text, text_rect)
             
     def _cleanup(self):
-        if self._is_calibration_active():
-            self._finish_calibration_run(cancelled=True)
+        if self._is_trial_active():
+            self._finish_trial_run(cancelled=True)
         elif self.session_logger and self.session_logger.is_active:
             self.session_logger.cancel_session()
 
