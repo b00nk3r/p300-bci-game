@@ -99,10 +99,10 @@ class ArrowConfig:
     Arrow appearance settings.
     
     Arrow specifications (for 3072×1920 resolution):
-    - Arrow icon box: 100×100 px
-    - Triangle inside box: 80px length, 60px base width
+    - Arrow icon box: 150×150 px
+    - Triangle inside box: 150px length, 150px base width
     - Panel size: 200×200 px per arrow
-    - Arrow-to-panel-edge margin: 50px (because 200 panel, 100 arrow)
+    - Arrow-to-panel-edge margin: 25px (because 200 panel, 150 arrow)
     """
     size: int = 150                   # Arrow bounding box size in pixels
     
@@ -128,7 +128,7 @@ class ArrowConfig:
     @property
     def panel_padding(self) -> int:
         """Padding from arrow edge to panel edge"""
-        return (self.panel_size - self.size) // 2  # 50px with default values
+        return (self.panel_size - self.size) // 2  # 25px with default values
 
 
 @dataclass
@@ -139,7 +139,7 @@ class LayoutConfig:
     Specifications (for 3072×1920):
     - Overlay window: 1150×1150 px (±50px), SQUARE, centered
     - Arrow offset from center: 475 px (to achieve 1150px with 200px panels)
-    - Arrow size: 100×100 px
+    - Arrow size: 150×150 px
     """
     # Distance from screen center to arrow centers
     # For 1150px square: offset = (1150 - 200) / 2 = 475px
@@ -236,7 +236,6 @@ class Config:
     
     # Debug settings
     debug: bool = True
-    show_fps: bool = True
 
 
 # Default configuration instance
@@ -245,9 +244,6 @@ DEFAULT_CONFIG = Config()
 # =============================================================================
 # Real-time BCI configuration
 # =============================================================================
-
-BCI_MODE = False   # Set True to enable live EEG classification
-                   # Set False to keep keyboard simulation (keys 1-4)
 
 LSL_STREAM_TYPE = "EEG"
 LSL_STREAM_NAME = None   # None = auto-discover; or set a specific name

@@ -308,7 +308,7 @@ class LiveMode(Application):
     def _is_game_over(self) -> bool:
         return (
             self.game_manager is not None
-            and self.game_manager._state == GameState.GAME_OVER
+            and self.game_manager.state == GameState.GAME_OVER
         )
 
     def _on_game_over(self, stats):
