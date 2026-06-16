@@ -243,7 +243,7 @@ class TimingController:
                 self._on_flash_end(event.direction, event.sequence, actual_time_ms)
                 
             # Check for sequence complete (after last flash ends in sequence)
-            if event.index == 3:  # Last arrow in sequence (0-indexed)
+            if event.index == len(Direction.all()) - 1:  # Last arrow in sequence (0-indexed)
                 self._current_sequence = event.sequence + 1
                 if self._on_sequence_complete:
                     self._on_sequence_complete(event.sequence)
@@ -338,7 +338,7 @@ class TimingController:
         
     def get_expected_duration_ms(self) -> float:
         """Calculate expected total duration in milliseconds"""
-        num_flashes_per_seq = 4  # 4 directions
+        num_flashes_per_seq = len(Direction.all())  # 4 directions
         seq_duration = num_flashes_per_seq * self.config.soa_ms
         total = self.config.num_sequences * (
             seq_duration + self.config.inter_sequence_pause_ms
