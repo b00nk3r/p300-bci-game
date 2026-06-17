@@ -2,23 +2,20 @@
 Real-Time P300 Classifier for the BCI Game
 ===========================================
 
-Supports two modes:
-    - Single model: loads one .joblib artifact (LDA, LR, etc.)
-    - Ensemble: loads multiple models with different feature configs,
-      z-score normalises their scores, and combines with learned weights.
-
-The mode is controlled by MODEL_MODE in config.py ("single" or "ensemble").
+Loads one trained model (.joblib) and classifies the attended direction
+in real time.
 
 Architecture:
     - A background thread continuously pulls EEG samples from an LSL
       stream and stores them in a thread-safe ring buffer.
     - When the game finishes flashing (trial complete), the main thread
-      calls classify_trial() with the list of flash events.
-    - classify_trial() extracts epochs, preprocesses them, runs the
-      model(s), and returns the predicted direction.
+      calls classify_trial() with the recorded flash events.
+    - classify_trial() extracts epochs, preprocesses them to match the
+      offline pipeline, runs the model, and returns the predicted
+      direction.
 
-Interface (unchanged from single-model version):
-    classifier = RealtimeClassifier(...)
+Interface:
+    classifier = RealtimeClassifier(model_path="models/10trials_model.joblib")
     classifier.start()
     classifier.record_flash(direction, timestamp)
     result = classifier.classify_trial()
@@ -187,7 +184,7 @@ class RingBuffer:
 
 
 # ═════════════════════════════════════════════════════════════════════
-# LSL Receiver (unchanged)
+# LSL Receiver
 # ═════════════════════════════════════════════════════════════════════
 
 class LSLReceiver(threading.Thread):
@@ -247,166 +244,36 @@ class LSLReceiver(threading.Thread):
 
 
 # ═════════════════════════════════════════════════════════════════════
-# Model descriptor — stores one model + its feature config
-# ═════════════════════════════════════════════════════════════════════
-
-class ModelDescriptor:
-    """
-    Everything needed to run one model at inference time.
-
-    Attributes:
-        name:           Human-readable name (e.g. "1_LDA")
-        model:          Fitted sklearn estimator
-        weight:         Ensemble weight (sums to ~1 across all models)
-        dec_window:     Decimation window size in samples
-        dec_step:       Decimation step in samples
-        lowpass_hz:     Low-pass cutoff applied to epochs (30 = standard, <30 = extra filter)
-        channel_indices: Which channels to use (None = all 16)
-        window_start_ms: Feature window start (ms post-stimulus)
-        window_end_ms:   Feature window end
-        score_mean:     Mean of CV scores (for z-score normalisation)
-        score_std:      Std of CV scores
-    """
-
-    def __init__(self, name, artifact, weight):
-        self.name = name
-        self.model = artifact["model"]
-        self.weight = weight
-
-        # ── Parse feature params (handle both formats) ───────────
-        fp = artifact.get("feature_params", {})
-
-        # Window
-        if "window_start_ms" in fp:
-            self.window_start_ms = int(fp["window_start_ms"])
-            self.window_end_ms = int(fp["window_end_ms"])
-        elif "window" in fp:
-            parts = fp["window"].split("-")
-            self.window_start_ms = int(parts[0])
-            self.window_end_ms = int(parts[1])
-        else:
-            self.window_start_ms = 0
-            self.window_end_ms = 800
-
-        # Decimation
-        if "dec_window" in fp:
-            self.dec_window = int(fp["dec_window"])
-            self.dec_step = int(fp["dec_step"])
-        elif "dec" in fp:
-            parts = fp["dec"].split("/")
-            self.dec_window = int(parts[0])
-            self.dec_step = int(parts[1])
-        else:
-            self.dec_window = 20
-            self.dec_step = 10
-
-        # Low-pass cutoff
-        self.lowpass_hz = float(fp.get("lowpass", 30))
-
-        # Channels
-        if "channel_indices" in fp:
-            self.channel_indices = list(fp["channel_indices"])
-        elif fp.get("channels") == "12ch_no_artifact":
-            self.channel_indices = CH_NO_ARTIFACT
-        else:
-            self.channel_indices = None  # all 16
-
-        # ── Normalisation stats from CV scores ───────────────────
-        cv_scores = artifact.get("cv_scores", None)
-        if cv_scores is not None:
-            self.score_mean = float(np.mean(cv_scores))
-            self.score_std = float(np.std(cv_scores))
-            if self.score_std < 1e-10:
-                self.score_std = 1.0
-        else:
-            self.score_mean = 0.0
-            self.score_std = 1.0
-
-    @property
-    def feature_key(self):
-        """
-        Unique key for the feature extraction pipeline.
-        Models sharing the same key can reuse the same feature matrix.
-        """
-        ch_key = tuple(self.channel_indices) if self.channel_indices else "all"
-        return (
-            self.window_start_ms, self.window_end_ms,
-            self.dec_window, self.dec_step,
-            self.lowpass_hz,
-            ch_key,
-        )
-
-    def predict_scores(self, X):
-        """Run inference and return 1-D score array."""
-        if hasattr(self.model, "decision_function"):
-            return self.model.decision_function(X)
-        else:
-            # predict_proba → take target-class (column 1) probability
-            return self.model.predict_proba(X)[:, 1]
-
-    def normalise(self, scores):
-        """Z-score normalise using training statistics."""
-        return (scores - self.score_mean) / self.score_std
-
-    def __repr__(self):
-        ch = len(self.channel_indices) if self.channel_indices else 16
-        return (
-            f"ModelDescriptor({self.name}, dec={self.dec_window}/{self.dec_step}, "
-            f"lp={self.lowpass_hz}Hz, ch={ch}, w={self.weight:.3f})"
-        )
-
-
-# ═════════════════════════════════════════════════════════════════════
 # Main classifier
 # ═════════════════════════════════════════════════════════════════════
 
 class RealtimeClassifier:
     """
-    Real-time P300 classifier supporting single-model and ensemble modes.
+    Real-time P300 classifier.
 
-    The external interface is identical in both modes:
+    Loads one trained model and its feature configuration, then classifies
+    each trial from the continuous EEG buffer.
+
+        classifier = RealtimeClassifier(model_path=...)
         classifier.start()
         classifier.record_flash(direction, timestamp)
         result = classifier.classify_trial()
         classifier.stop()
     """
 
-    def __init__(
-        self,
-        model_path=None,
-        ensemble_model_paths=None,
-        ensemble_weights=None,
-        stream_type="EEG",
-        stream_name=None,
-    ):
+    def __init__(self, model_path, stream_type="EEG", stream_name=None):
         """
         Args:
-            model_path: Path to single model .joblib (single mode).
-            ensemble_model_paths: Dict {name: path} for all ensemble models.
-            ensemble_weights: Dict {name: weight} for ensemble combining.
+            model_path: Path to the model .joblib artifact.
             stream_type: LSL stream type.
             stream_name: Optional LSL stream name.
         """
-        self.ensemble_mode = (ensemble_model_paths is not None)
+        self._load_model(model_path)
 
-        if self.ensemble_mode:
-            self._load_ensemble(ensemble_model_paths, ensemble_weights or {})
-        else:
-            self._load_single(model_path)
-
-        # Bandpass filter coefficients (shared across all models)
+        # Band-pass filter applied to the continuous buffer (0.5-30 Hz)
         self.b_30hz, self.a_30hz = butter(
             BPF_ORDER, [BPF_LOW, BPF_HIGH], btype="bandpass", fs=SR
         )
-
-        # Extra low-pass filters (pre-computed for any model that needs them)
-        self._lowpass_filters = {}
-        if self.ensemble_mode:
-            for md in self.models:
-                if md.lowpass_hz < BPF_HIGH:
-                    if md.lowpass_hz not in self._lowpass_filters:
-                        b, a = butter(4, md.lowpass_hz, btype="low", fs=SR)
-                        self._lowpass_filters[md.lowpass_hz] = (b, a)
 
         # Ring buffer and LSL receiver
         self.ring_buffer = RingBuffer()
@@ -419,66 +286,60 @@ class RealtimeClassifier:
         # Flash events for the current trial
         self.flash_events = []
         self._lock = threading.Lock()
+
     # ── Loading ──────────────────────────────────────────────────
 
-    def _load_single(self, model_path):
-        """Load a single model artifact."""
-        print(f"[Classifier] Loading single model from {model_path}...")
+    def _load_model(self, model_path):
+        """Load the model artifact and its feature configuration."""
+        print(f"[Classifier] Loading model from {model_path}...")
         artifact = joblib.load(model_path)
 
-        self.models = [ModelDescriptor(
-            name=artifact.get("model_name", "single"),
-            artifact=artifact,
-            weight=1.0,
-        )]
-        self.feature_groups = {self.models[0].feature_key: [self.models[0]]}
+        self.model = artifact["model"]
+        self.model_name = artifact.get("model_name", "model")
 
-        fp = self.models[0]
-        print(f"[Classifier] Loaded: {fp.name}")
-        print(f"[Classifier]   Window: {fp.window_start_ms}-{fp.window_end_ms} ms")
-        print(f"[Classifier]   Decimation: {fp.dec_window}/{fp.dec_step}")
+        # ── Parse feature params (handle both saved formats) ─────
+        fp = artifact.get("feature_params", {})
+
+        # Feature window (ms post-stimulus)
+        if "window_start_ms" in fp:
+            self.window_start_ms = int(fp["window_start_ms"])
+            self.window_end_ms = int(fp["window_end_ms"])
+        elif "window" in fp:
+            parts = fp["window"].split("-")
+            self.window_start_ms = int(parts[0])
+            self.window_end_ms = int(parts[1])
+        else:
+            self.window_start_ms = 0
+            self.window_end_ms = 800
+
+        # Decimation (overlapping moving average)
+        if "dec_window" in fp:
+            self.dec_window = int(fp["dec_window"])
+            self.dec_step = int(fp["dec_step"])
+        elif "dec" in fp:
+            parts = fp["dec"].split("/")
+            self.dec_window = int(parts[0])
+            self.dec_step = int(parts[1])
+        else:
+            self.dec_window = 20
+            self.dec_step = 10
+
+        # Channels (None = all 16)
+        if "channel_indices" in fp:
+            self.channel_indices = list(fp["channel_indices"])
+        elif fp.get("channels") == "12ch_no_artifact":
+            self.channel_indices = CH_NO_ARTIFACT
+        else:
+            self.channel_indices = None
+
+        n_ch = len(self.channel_indices) if self.channel_indices else N_CHANNELS
+        print(f"[Classifier] Loaded: {self.model_name}")
+        print(f"[Classifier]   Window: {self.window_start_ms}-{self.window_end_ms} ms")
+        print(f"[Classifier]   Decimation: {self.dec_window}/{self.dec_step}")
+        print(f"[Classifier]   Channels: {n_ch}")
         cv_acc = artifact.get("cv_metrics", {}).get("trial_acc", None)
         if cv_acc:
             print(f"[Classifier]   CV trial accuracy: {cv_acc*100:.1f}%")
-
-    def _load_ensemble(self, model_paths, weights):
-        """Load all ensemble model artifacts and group by feature config."""
-        print(f"[Classifier] Loading ensemble ({len(model_paths)} models)...")
-
-        self.models = []
-        for name, path in model_paths.items():
-            w = weights.get(name, 0.0)
-            if w <= 0:
-                print(f"[Classifier]   Skipping {name} (weight=0)")
-                continue
-
-            try:
-                artifact = joblib.load(path)
-            except FileNotFoundError:
-                print(f"[Classifier]   WARNING: {path} not found — skipping {name}")
-                continue
-
-            md = ModelDescriptor(name, artifact, w)
-            self.models.append(md)
-
-            cv_acc = artifact.get("cv_metrics", {}).get("trial_acc", None)
-            acc_str = f"  cv={cv_acc*100:.1f}%" if cv_acc else ""
-            print(f"[Classifier]   {md}{acc_str}")
-
-        # Renormalise weights so they sum to 1
-        total_w = sum(md.weight for md in self.models)
-        if total_w > 0:
-            for md in self.models:
-                md.weight /= total_w
-
-        # Group models by feature pipeline (models sharing the same key
-        # will reuse the same feature extraction)
-        self.feature_groups = {}
-        for md in self.models:
-            self.feature_groups.setdefault(md.feature_key, []).append(md)
-
-        print(f"[Classifier] {len(self.models)} models loaded, "
-              f"{len(self.feature_groups)} unique feature pipelines")
 
     # ── Start / Stop / State ─────────────────────────────────────
 
@@ -629,68 +490,45 @@ class RealtimeClassifier:
 
         return epochs_corrected, is_clean, np.array(directions, dtype=np.int8)
 
-    # ── Feature extraction for one pipeline config ───────────────
+    # ── Feature extraction ───────────────────────────────────────
 
-    def _extract_features(self, epochs_corrected, is_clean, directions, feature_key):
+    def _extract_features(self, epochs_corrected, is_clean, directions):
         """
-        Extract features for one unique feature pipeline.
-
-        Args:
-            epochs_corrected: (n_total, epoch_samples, n_channels) — full preprocessed
-            is_clean: boolean mask
-            directions: direction index per epoch
-            feature_key: (w_start, w_end, dec_w, dec_s, lowpass, ch_key)
+        Extract the feature matrix for the clean epochs.
 
         Returns:
             X: feature matrix (n_clean, n_features)
-            clean_dirs: direction indices for clean epochs
+            clean_dirs: direction index per clean epoch
         """
-        (
-            w_start_ms,
-            w_end_ms,
-            dec_window,
-            dec_step,
-            lowpass_hz,
-            ch_key,
-        ) = feature_key
-
         pre_samp = int(EPOCH_PRE_MS * SR / 1000)
-        start_idx = pre_samp + int(w_start_ms * SR / 1000)
-        end_idx = pre_samp + int(w_end_ms * SR / 1000)
+        start_idx = pre_samp + int(self.window_start_ms * SR / 1000)
+        end_idx = pre_samp + int(self.window_end_ms * SR / 1000)
 
-        # Determine channel indices
-        if ch_key == "all":
+        if self.channel_indices is None:
             ch_idx = list(range(N_CHANNELS))
         else:
-            ch_idx = list(ch_key)
+            ch_idx = list(self.channel_indices)
         n_ch = len(ch_idx)
 
-        # Apply extra low-pass if needed (e.g. 10 Hz)
-        if lowpass_hz < BPF_HIGH and lowpass_hz in self._lowpass_filters:
-            b_lp, a_lp = self._lowpass_filters[lowpass_hz]
-            epochs_to_use = np.zeros_like(epochs_corrected)
-            for i in range(len(epochs_corrected)):
-                epochs_to_use[i] = filtfilt(b_lp, a_lp, epochs_corrected[i], axis=0)
-        else:
-            epochs_to_use = epochs_corrected
-
+        # The continuous buffer is already band-pass filtered (0.5-30 Hz),
+        # so epochs are used as-is here.
         features = []
         clean_dirs = []
 
-        for i in range(len(epochs_to_use)):
+        for i in range(len(epochs_corrected)):
             if not is_clean[i]:
                 continue
 
-            epoch = epochs_to_use[i][:, ch_idx]       # select channels
-            trimmed = epoch[start_idx:end_idx, :]      # time window
+            epoch = epochs_corrected[i][:, ch_idx]     # select channels
+            trimmed = epoch[start_idx:end_idx, :]       # time window
 
             # Overlapping moving average (decimation)
             n_time = trimmed.shape[0]
-            n_out = (n_time - dec_window) // dec_step + 1
+            n_out = (n_time - self.dec_window) // self.dec_step + 1
             decimated = np.zeros((n_out, n_ch), dtype=np.float64)
             for j in range(n_out):
-                s = j * dec_step
-                decimated[j] = trimmed[s:s + dec_window].mean(axis=0)
+                s = j * self.dec_step
+                decimated[j] = trimmed[s:s + self.dec_window].mean(axis=0)
 
             features.append(decimated.flatten())
             clean_dirs.append(directions[i])
@@ -698,6 +536,14 @@ class RealtimeClassifier:
         X = np.array(features, dtype=np.float64)
         clean_dirs = np.array(clean_dirs, dtype=np.int8)
         return X, clean_dirs
+
+    def _predict_scores(self, X):
+        """Run inference and return a 1-D score array."""
+        if hasattr(self.model, "decision_function"):
+            return self.model.decision_function(X)
+        else:
+            # predict_proba → take target-class (column 1) probability
+            return self.model.predict_proba(X)[:, 1]
 
     # ── Classification ───────────────────────────────────────────
 
@@ -749,36 +595,18 @@ class RealtimeClassifier:
             print("[Classifier] All epochs rejected — cannot classify.")
             return None
 
-        # ── Step 3: Run each feature group & collect scores ──────
-        #
-        # For each unique feature pipeline, extract features once,
-        # then run all models that share that pipeline.
-        # Each model's scores are z-normalised and weighted.
-
-        # Accumulate weighted normalised scores per epoch (clean only)
-        combined_scores = np.zeros(n_clean, dtype=np.float64)
-        # We also need clean_dirs — same for all groups (same is_clean mask)
-        clean_dirs_ref = None
-
-        for feature_key, model_list in self.feature_groups.items():
-            X, clean_dirs = self._extract_features(
-                epochs_corrected, is_clean, directions, feature_key
-            )
-
-            if clean_dirs_ref is None:
-                clean_dirs_ref = clean_dirs
-
-            for md in model_list:
-                raw_scores = md.predict_scores(X)
-                norm_scores = md.normalise(raw_scores)
-                combined_scores += norm_scores * md.weight
+        # ── Step 3: Score each clean epoch ───────────────────────
+        X, clean_dirs = self._extract_features(
+            epochs_corrected, is_clean, directions
+        )
+        scores = self._predict_scores(X)
 
         # ── Step 4: Aggregate per direction ──────────────────────
         direction_scores = {}
         for d in range(4):
-            d_mask = clean_dirs_ref == d
+            d_mask = clean_dirs == d
             if d_mask.sum() > 0:
-                direction_scores[d] = float(combined_scores[d_mask].mean())
+                direction_scores[d] = float(scores[d_mask].mean())
             else:
                 direction_scores[d] = float("-inf")
 
@@ -789,8 +617,7 @@ class RealtimeClassifier:
         confidence = sorted_scores[0] - sorted_scores[1] if len(sorted_scores) > 1 else 0.0
 
         # Pretty-print
-        mode_str = f"ensemble ({len(self.models)} models)" if self.ensemble_mode else "single"
-        print(f"[Classifier] [{mode_str}] Scores: " + "  ".join(
+        print("[Classifier] Scores: " + "  ".join(
             f"{DIRECTION_NAMES[d]}={direction_scores[d]:+.3f}"
             for d in range(4)
         ))
@@ -809,7 +636,7 @@ class RealtimeClassifier:
 
 
 # ═════════════════════════════════════════════════════════════════════
-# Factory function — creates the right classifier based on config
+# Factory function — creates the classifier from config
 # ═════════════════════════════════════════════════════════════════════
 
 def create_classifier(stream_type="EEG", stream_name=None):
