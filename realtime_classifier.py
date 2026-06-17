@@ -816,24 +816,15 @@ def create_classifier(stream_type="EEG", stream_name=None):
     """
     Create a RealtimeClassifier using the settings in config.py.
 
-    Returns a classifier in single or ensemble mode depending on MODEL_MODE.
+    Loads the single model at MODEL_PATH.
     """
-    from config import MODEL_MODE, MODEL_PATH
+    from config import MODEL_PATH
 
-    if MODEL_MODE == "ensemble":
-        from config import ENSEMBLE_MODEL_PATHS, ENSEMBLE_WEIGHTS
-        return RealtimeClassifier(
-            ensemble_model_paths=ENSEMBLE_MODEL_PATHS,
-            ensemble_weights=ENSEMBLE_WEIGHTS,
-            stream_type=stream_type,
-            stream_name=stream_name,
-        )
-    else:
-        return RealtimeClassifier(
-            model_path=MODEL_PATH,
-            stream_type=stream_type,
-            stream_name=stream_name,
-        )
+    return RealtimeClassifier(
+        model_path=MODEL_PATH,
+        stream_type=stream_type,
+        stream_name=stream_name,
+    )
 
 
 # ═════════════════════════════════════════════════════════════════════
