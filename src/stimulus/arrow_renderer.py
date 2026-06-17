@@ -143,10 +143,6 @@ class ArrowRenderer:
             'vertical': self._panel_rect.copy(),
             'horizontal': self._panel_rect.copy(),
         }
-    
-    def get_plus_shape(self) -> dict:
-        """Get the plus-shape rectangles for forbidden zone calculation"""
-        return getattr(self, '_plus_shape', None)
         
     def _create_arrow_surfaces(self):
         """Pre-render arrow surfaces for each direction and state"""
