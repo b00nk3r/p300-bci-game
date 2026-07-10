@@ -29,7 +29,7 @@ class Direction(Enum):
     DOWN = "down"
     LEFT = "left"
     RIGHT = "right"
-    
+
     @classmethod
     def all(cls) -> List["Direction"]:
         return [cls.UP, cls.DOWN, cls.LEFT, cls.RIGHT]
@@ -38,7 +38,7 @@ class Direction(Enum):
 class ColorScheme(Enum):
     """Available color schemes for arrows"""
     GRAY_WHITE = auto()    # Default: gray idle -> white flash
-    GREEN_BLUE = auto()    # Comfort: blue idle -> green flash  
+    GREEN_BLUE = auto()    # Comfort: blue idle -> green flash
     INVERTED = auto()      # Light mode: light idle -> dark flash
 
 
@@ -62,17 +62,17 @@ class DisplayConfig:
     background_color: Tuple[int, int, int] = (10, 10, 10)
 
 
-@dataclass  
+@dataclass
 class TimingConfig:
     """Stimulus timing parameters"""
     # Flash timing (in milliseconds)
     flash_duration_ms: int = 100      # How long arrow stays highlighted
     isi_ms: int = 125                 # Inter-stimulus interval
-    
+
     # Sequence settings
     num_sequences: int = 10           # Repetitions per selection
     inter_sequence_pause_ms: int = 200
-    
+
     # Flash pattern
     flash_pattern: FlashPattern = FlashPattern.RANDOM
 
@@ -80,7 +80,7 @@ class TimingConfig:
     def soa_ms(self) -> int:
         """Stimulus Onset Asynchrony"""
         return self.flash_duration_ms + self.isi_ms
-    
+
     @property
     def flash_rate_hz(self) -> float:
         """Flash rate per arrow"""
@@ -91,7 +91,7 @@ class TimingConfig:
 class ArrowConfig:
     """
     Arrow appearance settings.
-    
+
     Arrow specifications (for 3072×1920 resolution):
     - Arrow icon box: 150×150 px
     - Triangle inside box: 150px length, 150px base width
@@ -99,11 +99,11 @@ class ArrowConfig:
     - Arrow-to-panel-edge margin: 25px (because 200 panel, 150 arrow)
     """
     size: int = 150                   # Arrow bounding box size in pixels
-    
+
     # Triangle dimensions inside the bounding box
     triangle_length: int = 150        # Length in pointing direction
     triangle_base: int = 150          # Base width perpendicular to direction
-    
+
     # Color scheme
     color_scheme: ColorScheme = ColorScheme.GRAY_WHITE
 

@@ -4,16 +4,15 @@ from typing import Optional, Callable, Dict
 import pygame
 
 from config import Config, Direction
+from src.stimulus.arrow_renderer import ArrowRenderer
+from src.stimulus.timing_controller import TimingController
+from src.stimulus.triggers import TriggerManager
 
 
 class StimulusController:
-    
+
     def __init__(self, config: Config):
         self.config = config
-
-        from src.stimulus.arrow_renderer import ArrowRenderer
-        from src.stimulus.timing_controller import TimingController
-        from src.stimulus.triggers import TriggerManager
 
         self.renderer = ArrowRenderer(config.arrows, config.layout)
         self.timing = TimingController(config.timing)
