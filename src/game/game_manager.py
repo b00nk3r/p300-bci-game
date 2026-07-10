@@ -19,7 +19,7 @@ from enum import Enum, auto
 from typing import Optional, Callable, Tuple
 from dataclasses import dataclass
 
-from config import Config, Direction
+from config import Direction
 from src.game.maze import Maze, MazeConfig, CellType
 from src.game.player import Player, PlayerConfig
 from src.game.collectible import CollectibleManager, CollectibleConfig
@@ -71,7 +71,11 @@ class GameManagerConfig:
     # Level completion
     require_all_collectibles: bool = True
     require_reach_goal: bool = False  # Optional: also reach goal square
-    
+
+    # If True, completing the level ends the game (GAME_OVER) instead of
+    # auto-advancing to a freshly generated level.
+    end_on_completion: bool = False
+
     # Timing
     level_complete_delay_ms: float = 2000.0  # Delay before next level
 
@@ -127,25 +131,22 @@ class GameManager:
         self._on_item_collected: Optional[Callable[[int], None]] = None
         
     def initialize(
-        self, 
-        screen_width: int, 
+        self,
+        screen_width: int,
         screen_height: int,
-        arrow_panel_rect: pygame.Rect = None,
-        arrow_positions: dict = None
+        arrow_panel_rect: pygame.Rect = None
     ):
         """
         Initialize game manager.
-        
+
         Args:
             screen_width: Screen width in pixels
             screen_height: Screen height in pixels
             arrow_panel_rect: Rectangle of arrow panel (bounding box)
-            arrow_positions: Dict mapping Direction to (x, y) center positions
         """
         self._screen_width = screen_width
         self._screen_height = screen_height
         self._arrow_panel_rect = arrow_panel_rect
-        self._arrow_positions = arrow_positions or {}
         
         # Calculate cell size based on screen
         if self.config.cell_size == 0:
@@ -219,46 +220,35 @@ class GameManager:
         )
         
         self.maze = Maze(maze_config)
-        
-        # Calculate rectangular forbidden zone from arrow positions
-        # to keep the full center arrow area blocked/black.
-        if self._arrow_panel_rect and hasattr(self, '_arrow_positions') and self._arrow_positions:
+
+        # Block every cell the arrow panel overlaps so the center area stays
+        # black and unwalkable. The panel rect comes straight from the
+        # stimulus renderer, so panel size/expansion cannot drift from it.
+        if self._arrow_panel_rect:
             cell_size = self.config.cell_size
-            panel_size = 200  # Arrow panel size (should match ArrowConfig)
-            half_panel = panel_size // 2
-            
+
             # Calculate maze offset (maze is centered on screen)
             maze_width_px = width * cell_size
             maze_height_px = height * cell_size
             offset_x = (self._screen_width - maze_width_px) // 2
             offset_y = (self._screen_height - maze_height_px) // 2
-            
-            # Get arrow positions
-            from config import Direction
-            up_pos = self._arrow_positions.get(Direction.UP)
-            down_pos = self._arrow_positions.get(Direction.DOWN)
-            left_pos = self._arrow_positions.get(Direction.LEFT)
-            right_pos = self._arrow_positions.get(Direction.RIGHT)
-            
-            if up_pos and down_pos and left_pos and right_pos:
-                # Rectangle bounds from outer edges of all arrow panels.
-                left_px = left_pos[0] - half_panel - offset_x
-                right_px = right_pos[0] + half_panel - offset_x
-                top_px = up_pos[1] - half_panel - offset_y
-                bottom_px = down_pos[1] + half_panel - offset_y
 
-                # Convert rectangle bounds to grid coordinates.
-                rx1 = max(0, int(left_px // cell_size))
-                ry1 = max(0, int(top_px // cell_size))
-                rx2 = min(width, int((right_px + cell_size - 1) // cell_size))
-                ry2 = min(height, int((bottom_px + cell_size - 1) // cell_size))
+            # Panel bounds in maze-local pixels, then in grid coordinates.
+            left_px = self._arrow_panel_rect.left - offset_x
+            right_px = self._arrow_panel_rect.right - offset_x
+            top_px = self._arrow_panel_rect.top - offset_y
+            bottom_px = self._arrow_panel_rect.bottom - offset_y
 
-                # Block the full rectangular center zone.
-                self.maze.set_forbidden_zone((rx1, ry1, rx2 - rx1, ry2 - ry1))
+            rx1 = max(0, int(left_px // cell_size))
+            ry1 = max(0, int(top_px // cell_size))
+            rx2 = min(width, int((right_px + cell_size - 1) // cell_size))
+            ry2 = min(height, int((bottom_px + cell_size - 1) // cell_size))
 
-                print("  Rectangular forbidden zone:")
-                print(f"    Rect: ({rx1},{ry1}) size {rx2-rx1}×{ry2-ry1}")
-        
+            self.maze.set_forbidden_zone((rx1, ry1, rx2 - rx1, ry2 - ry1))
+
+            print("  Rectangular forbidden zone:")
+            print(f"    Rect: ({rx1},{ry1}) size {rx2-rx1}×{ry2-ry1}")
+
         # Generate maze
         self.maze.generate()
         
@@ -270,12 +260,11 @@ class GameManager:
         for cell_x, cell_y in scoreboard_cells:
             self.maze.set_cell(cell_x, cell_y, CellType.WALL)
         
-        # Setup renderer for this maze
+        # Setup renderer for this maze (the hole comes from the forbidden zone)
         self.renderer.setup(
-            self._screen_width, 
-            self._screen_height, 
+            self._screen_width,
+            self._screen_height,
             self.maze,
-            self._arrow_panel_rect  # Pass arrow panel rect for hole rendering
         )
         
         # Find valid start position (not in forbidden zone)
@@ -387,11 +376,17 @@ class GameManager:
         if self.config.require_reach_goal:
             if self.player.grid_position != self.maze.goal_pos:
                 return
-                
-        # Level complete!
+
+        # All items collected: either the game is over or the next level starts.
+        if self.config.end_on_completion:
+            self._state = GameState.GAME_OVER
+            if self._on_game_over:
+                self._on_game_over(self._stats)
+            return
+
         self._state = GameState.LEVEL_COMPLETE
         self._level_complete_timer = 0.0
-        
+
         if self._on_level_complete:
             self._on_level_complete(self._stats.level, self._stats.score)
             
@@ -452,6 +447,14 @@ class GameManager:
                 f"Level {self._stats.level} Complete!",
                 f"Score: {self._stats.score} | Next level in {int((self.config.level_complete_delay_ms - self._level_complete_timer) / 1000) + 1}s"
             )
+
+        # Draw game over message
+        if self._state == GameState.GAME_OVER:
+            self.renderer.draw_message(
+                screen,
+                "You Win!",
+                f"All items collected | Score: {self._stats.score} | Press R to play again"
+            )
             
     def set_callbacks(
         self,
@@ -486,12 +489,6 @@ class GameManager:
                 self.player is not None and 
                 not self.player.is_moving)
                 
-    def get_maze_rect(self) -> Optional[pygame.Rect]:
-        """Get maze screen rectangle"""
-        if self.renderer:
-            return self.renderer.get_maze_rect()
-        return None
-    
     def set_dullness(self, dullness: int):
         """
         Update the dullness level and recreate renderer.

@@ -5,32 +5,24 @@ Renders game elements in a retro pixel art style.
 
 Key design principles:
 - Blocky, pixelated graphics for maze, player, and collectibles
-- The plus-shaped arrow panel area remains UNCHANGED
+- The center arrow panel area is left untouched (rendered by the stimulus)
 - All colors remain grayscale as specified
-- All sizes and proportions are preserved
-
-Pixel art techniques used:
-- Chunky grid-aligned shapes
-- Sharp edges without anti-aliasing
-- Simple iconic representations
-- Highlight/shadow details for depth
 
 Currently renders:
-- Maze walls and paths with brick/tile textures
+- Maze floor with tile textures
 - Player as a pixel art character
 - Collectibles as pixel art icons
 - UI elements (score, status)
 """
 
 import pygame
-import math
 import time
-from typing import Tuple, Optional, Dict, List
+from typing import Tuple, Optional, Dict
 from dataclasses import dataclass
 
 from src.game.maze import Maze, CellType
 from src.game.player import Player
-from src.game.collectible import CollectibleManager, Collectible, CollectibleType
+from src.game.collectible import CollectibleManager, Collectible
 
 
 @dataclass
@@ -50,10 +42,6 @@ class RenderConfig:
     _base_goal_color: Tuple[int, int, int] = (32, 32, 32)
     _base_player_color: Tuple[int, int, int] = (70, 70, 70)
     _base_player_outline: Tuple[int, int, int] = (50, 50, 50)
-    _base_player_direction_color: Tuple[int, int, int] = (80, 80, 80)
-    _base_gem_color: Tuple[int, int, int] = (60, 60, 60)
-    _base_star_color: Tuple[int, int, int] = (80, 80, 80)
-    _base_ui_bg_color: Tuple[int, int, int] = (15, 15, 15)
     _base_ui_text_color: Tuple[int, int, int] = (70, 70, 70)
     _base_ui_highlight_color: Tuple[int, int, int] = (90, 90, 90)
     
@@ -86,23 +74,7 @@ class RenderConfig:
     @property
     def player_outline(self) -> Tuple[int, int, int]:
         return self._apply_dullness(self._base_player_outline)
-    
-    @property
-    def player_direction_color(self) -> Tuple[int, int, int]:
-        return self._apply_dullness(self._base_player_direction_color)
-    
-    @property
-    def gem_color(self) -> Tuple[int, int, int]:
-        return self._apply_dullness(self._base_gem_color)
-    
-    @property
-    def star_color(self) -> Tuple[int, int, int]:
-        return self._apply_dullness(self._base_star_color)
-    
-    @property
-    def ui_bg_color(self) -> Tuple[int, int, int]:
-        return self._apply_dullness(self._base_ui_bg_color)
-    
+
     @property
     def ui_text_color(self) -> Tuple[int, int, int]:
         return self._apply_dullness(self._base_ui_text_color)
@@ -112,8 +84,8 @@ class RenderConfig:
         return self._apply_dullness(self._base_ui_highlight_color)
     
     # Sizes
-    player_size_ratio: float = 1.0   # Player fills entire cell
-    collectible_size_ratio: float = 0.4  # Collectible size relative to cell
+    player_size_ratio: float = 1.0       # Player fills entire cell
+    collectible_size_ratio: float = 0.675  # Collectible size relative to cell
 
 
 class GameRenderer:
@@ -125,27 +97,26 @@ class GameRenderer:
     
     Usage:
         renderer = GameRenderer(config)
-        renderer.setup(screen_width, screen_height, maze, arrow_panel_rect)
-        
+        renderer.setup(screen_width, screen_height, maze)
+
         # In game loop:
         renderer.draw_maze(screen, maze)
         renderer.draw_collectibles(screen, collectible_manager)
         renderer.draw_player(screen, player)
         renderer.draw_ui(screen, score, level)
     """
-    
+
     def __init__(self, config: RenderConfig = None):
         self.config = config or RenderConfig()
-        
+
         # Calculated values (set in setup)
         self._offset_x: int = 0
         self._offset_y: int = 0
         self._maze_width_px: int = 0
         self._maze_height_px: int = 0
-        
+
         # Arrow panel hole (in grid coordinates)
-        self._hole_rect: Optional[pygame.Rect] = None  # Screen coords
-        self._hole_grid_rect: Optional[pygame.Rect] = None  # Grid coords
+        self._hole_grid_rect: Optional[pygame.Rect] = None
         
         # Cached surfaces for performance
         self._maze_surface: Optional[pygame.Surface] = None
@@ -168,20 +139,18 @@ class GameRenderer:
         self._start_time: float = time.time()
         
     def setup(
-        self, 
-        screen_width: int, 
-        screen_height: int, 
-        maze: Maze,
-        arrow_panel_rect: pygame.Rect = None
+        self,
+        screen_width: int,
+        screen_height: int,
+        maze: Maze
     ):
         """
         Setup renderer for given screen and maze.
-        
+
         Args:
             screen_width: Screen width in pixels
             screen_height: Screen height in pixels
             maze: Maze to render
-            arrow_panel_rect: Rectangle of arrow panel (for reference)
         """
         cell_size = self.config.cell_size
         
@@ -203,28 +172,13 @@ class GameRenderer:
             (maze.width - 1, 0),  # Right cell of scoreboard
         ]
         
-        # The hole is now determined by the maze's forbidden zone
-        # which can be either rectangular or plus-shaped
-        self._hole_rect = arrow_panel_rect
-        
-        # For rendering, we use the maze's is_forbidden() method
-        # which handles both rectangular and plus-shaped zones
-        if maze._forbidden_plus:
-            # Store plus shape for hole rendering
-            vx, vy, vw, vh = maze._forbidden_plus['vertical']
-            hx, hy, hw, hh = maze._forbidden_plus['horizontal']
-            self._hole_grid_rect = None  # Not using single rect
-            self._hole_plus = {
-                'vertical': pygame.Rect(vx, vy, vw, vh),
-                'horizontal': pygame.Rect(hx, hy, hw, hh),
-            }
-        elif maze._forbidden_rect:
+        # The hole (cells left unrendered for the arrow panel) mirrors the
+        # maze's rectangular forbidden zone.
+        if maze._forbidden_rect:
             fx, fy, fw, fh = maze._forbidden_rect
             self._hole_grid_rect = pygame.Rect(fx, fy, fw, fh)
-            self._hole_plus = None
         else:
             self._hole_grid_rect = None
-            self._hole_plus = None
         
         # Initialize fonts
         self._font_large = pygame.font.Font(None, 36)
@@ -639,12 +593,6 @@ class GameRenderer:
     
     def _create_pixel_font(self, pixel_size: int):
         """Create pixel art characters for scoreboard text"""
-        # Store pixel size for drawing
-        self._pixel_font_size = pixel_size
-        
-        # Chalk color (white/light gray)
-        chalk = (200, 200, 195)
-        
         # Define 5x7 pixel font patterns (each char is list of strings)
         self._pixel_chars = {
             '0': [
@@ -856,28 +804,6 @@ class GameRenderer:
             ],
         }
     
-    def _draw_pixel_text(self, surface: pygame.Surface, text: str, x: int, y: int, color: Tuple[int, int, int] = None):
-        """Draw text using pixel art font"""
-        if color is None:
-            color = (200, 200, 195)  # Chalk white
-        
-        pixel_size = self._pixel_font_size
-        char_width = 5 * pixel_size
-        char_height = 7 * pixel_size
-        spacing = pixel_size  # Space between characters
-        
-        cursor_x = x
-        for char in text.upper():
-            pattern = self._pixel_chars.get(char, self._pixel_chars.get(' '))
-            if pattern:
-                for row_idx, row in enumerate(pattern):
-                    for col_idx, pixel in enumerate(row):
-                        if pixel == '#':
-                            px = cursor_x + col_idx * pixel_size
-                            py = y + row_idx * pixel_size
-                            pygame.draw.rect(surface, color, (px, py, pixel_size, pixel_size))
-            cursor_x += char_width + spacing
-    
     def _create_player_sprites(self, cell_size: int):
         """Load the Viking player sprite from image file"""
         size = int(cell_size * self.config.player_size_ratio)
@@ -971,35 +897,9 @@ class GameRenderer:
             
             self._player_sprites[direction] = sprite
     
-    def _draw_pixel_outline(self, surface: pygame.Surface, color: Tuple[int, int, int], pixel_size: int):
-        """Draw a pixel-perfect outline around non-transparent pixels"""
-        width, height = surface.get_size()
-        
-        # Create a mask of the current content
-        for y in range(0, height, pixel_size):
-            for x in range(0, width, pixel_size):
-                # Check if this pixel is transparent
-                try:
-                    current_alpha = surface.get_at((x, y))[3]
-                except:
-                    continue
-                    
-                if current_alpha > 0:
-                    # Check neighbors for outline
-                    for dx, dy in [(-pixel_size, 0), (pixel_size, 0), (0, -pixel_size), (0, pixel_size)]:
-                        nx, ny = x + dx, y + dy
-                        if 0 <= nx < width and 0 <= ny < height:
-                            try:
-                                neighbor_alpha = surface.get_at((nx, ny))[3]
-                                if neighbor_alpha == 0:
-                                    pygame.draw.rect(surface, (*color, 255), (nx, ny, pixel_size, pixel_size))
-                            except:
-                                pass
-    
     def _create_collectible_sprites(self, cell_size: int):
         """Load collectible sprites from image files - CS classroom themed"""
-        # 25% smaller than the current donut size.
-        size = int(cell_size * 0.675)
+        size = int(cell_size * self.config.collectible_size_ratio)
 
         # Donut-only collectibles: map both keys to the donut sprite as a safe fallback.
         donut_sprite = self._load_collectible_image('donut.png', size)
@@ -1113,17 +1013,6 @@ class GameRenderer:
         
     def is_in_hole(self, grid_x: int, grid_y: int) -> bool:
         """Check if grid position is inside the hole (arrow panel area)"""
-        # Check plus-shaped hole
-        if hasattr(self, '_hole_plus') and self._hole_plus is not None:
-            # Check vertical strip
-            if self._hole_plus['vertical'].collidepoint(grid_x, grid_y):
-                return True
-            # Check horizontal strip
-            if self._hole_plus['horizontal'].collidepoint(grid_x, grid_y):
-                return True
-            return False
-        
-        # Check rectangular hole
         if self._hole_grid_rect is None:
             return False
         return self._hole_grid_rect.collidepoint(grid_x, grid_y)
@@ -1245,38 +1134,6 @@ class GameRenderer:
             sprite_rect = sprite.get_rect(center=(screen_x, screen_y))
             screen.blit(sprite, sprite_rect)
             
-    def _draw_direction_indicator(
-        self, 
-        screen: pygame.Surface,
-        cx: int, cy: int, 
-        direction, 
-        radius: int
-    ):
-        """Draw a small indicator showing movement direction"""
-        from config import Direction
-        
-        # Direction to angle (in radians)
-        angles = {
-            Direction.UP: -math.pi / 2,
-            Direction.DOWN: math.pi / 2,
-            Direction.LEFT: math.pi,
-            Direction.RIGHT: 0,
-        }
-        angle = angles.get(direction, 0)
-        
-        # Calculate indicator position
-        indicator_dist = radius * 0.6
-        ix = int(cx + math.cos(angle) * indicator_dist)
-        iy = int(cy + math.sin(angle) * indicator_dist)
-        
-        # Draw small circle
-        pygame.draw.circle(
-            screen,
-            self.config.player_direction_color,
-            (ix, iy),
-            radius // 4
-        )
-        
     def draw_collectibles(self, screen: pygame.Surface, manager: CollectibleManager):
         """Draw all collectibles (skip those in hole)"""
         for item in manager.active_collectibles:
@@ -1301,29 +1158,7 @@ class GameRenderer:
             # Center the sprite on the position
             sprite_rect = sprite.get_rect(center=(screen_x, screen_y))
             screen.blit(sprite, sprite_rect)
-        
-    def _draw_gem(
-        self, screen: pygame.Surface, 
-        cx: int, cy: int, size: int,
-        current_time: float, config
-    ):
-        """Draw a gem (coffee cup) using pixel art sprite"""
-        sprite = self._collectible_sprites.get('gem')
-        if sprite:
-            sprite_rect = sprite.get_rect(center=(cx, cy))
-            screen.blit(sprite, sprite_rect)
-        
-    def _draw_star(
-        self, screen: pygame.Surface, 
-        cx: int, cy: int, size: int,
-        current_time: float, config
-    ):
-        """Draw a star (donut) using pixel art sprite"""
-        sprite = self._collectible_sprites.get('star')
-        if sprite:
-            sprite_rect = sprite.get_rect(center=(cx, cy))
-            screen.blit(sprite, sprite_rect)
-            
+
     def draw_ui(
         self, 
         screen: pygame.Surface, 
@@ -1455,19 +1290,6 @@ class GameRenderer:
             sub_rect = sub_text.get_rect(center=(cx, cy + 20))
             screen.blit(sub_text, sub_rect)
             
-    def get_maze_rect(self) -> pygame.Rect:
-        """Get the screen rectangle occupied by the maze"""
-        return pygame.Rect(
-            self._offset_x,
-            self._offset_y,
-            self._maze_width_px,
-            self._maze_height_px
-        )
-        
-    def get_hole_grid_rect(self) -> Optional[pygame.Rect]:
-        """Get the grid rectangle of the hole (for maze generation)"""
-        return self._hole_grid_rect
-
 
 # =============================================================================
 # Testing
@@ -1495,25 +1317,26 @@ def demo():
         400, 300
     )
     
-    # Create game elements
+    # Create game elements (forbidden zone under the simulated arrow panel)
     maze_config = MazeConfig(width=31, height=23, cell_size=32, seed=42)
     maze = Maze(maze_config)
+    maze.set_forbidden_zone((10, 7, 13, 10))
     maze.generate()
-    
+
     player_config = PlayerConfig()
     player = Player(player_config, start_pos=maze.start_pos)
-    
+
     collectible_config = CollectibleConfig()
     collectibles = CollectibleManager(collectible_config)
     collectibles.spawn_random(
         lambda exclude=None: maze.get_random_path_cell(exclude),
         count=15
     )
-    
+
     # Create renderer
     render_config = RenderConfig(cell_size=32)
     renderer = GameRenderer(render_config)
-    renderer.setup(screen_width, screen_height, maze, arrow_panel_rect)
+    renderer.setup(screen_width, screen_height, maze)
     
     running = True
     score = 0

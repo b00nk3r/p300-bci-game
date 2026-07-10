@@ -39,10 +39,7 @@ class MazeConfig:
     
     # Generation settings
     seed: Optional[int] = None  # Random seed for reproducibility
-    
-    # Difficulty settings
-    remove_dead_ends: float = 0.0  # 0.0-1.0, removes dead ends to create loops
-    
+
     # Forbidden zone (area that must remain walls - e.g., arrow panel)
     # In grid coordinates
     forbidden_rect: Optional[Tuple[int, int, int, int]] = None  # (x, y, width, height)
@@ -91,10 +88,7 @@ class Maze:
         
         # Forbidden zone (rect in grid coords)
         self._forbidden_rect: Optional[Tuple[int, int, int, int]] = config.forbidden_rect
-        
-        # Plus-shaped forbidden zone (alternative to rectangle)
-        self._forbidden_plus: Optional[dict] = None
-        
+
         # Special positions
         self._start_pos: Tuple[int, int] = (1, 1)
         self._goal_pos: Tuple[int, int] = (config.width - 2, config.height - 2)
@@ -105,42 +99,14 @@ class Maze:
     def set_forbidden_zone(self, rect: Tuple[int, int, int, int]):
         """
         Set forbidden zone where paths cannot be carved.
-        
+
         Args:
             rect: (x, y, width, height) in grid coordinates
         """
         self._forbidden_rect = rect
-        self._forbidden_plus = None  # Clear plus shape if rectangle is set
-    
-    def set_forbidden_plus(self, vertical: Tuple[int, int, int, int], horizontal: Tuple[int, int, int, int]):
-        """
-        Set plus-shaped forbidden zone.
-        
-        Args:
-            vertical: (x, y, width, height) of vertical strip in grid coordinates
-            horizontal: (x, y, width, height) of horizontal strip in grid coordinates
-        """
-        self._forbidden_plus = {
-            'vertical': vertical,
-            'horizontal': horizontal,
-        }
-        self._forbidden_rect = None  # Clear rectangle if plus is set
-        
+
     def is_forbidden(self, x: int, y: int) -> bool:
-        """Check if cell is in forbidden zone (rectangle or plus shape)"""
-        # Check plus-shaped forbidden zone
-        if self._forbidden_plus is not None:
-            # Check vertical strip
-            vx, vy, vw, vh = self._forbidden_plus['vertical']
-            if vx <= x < vx + vw and vy <= y < vy + vh:
-                return True
-            # Check horizontal strip
-            hx, hy, hw, hh = self._forbidden_plus['horizontal']
-            if hx <= x < hx + hw and hy <= y < hy + hh:
-                return True
-            return False
-        
-        # Check rectangular forbidden zone
+        """Check if cell is in the forbidden zone"""
         if self._forbidden_rect is None:
             return False
         fx, fy, fw, fh = self._forbidden_rect
@@ -183,10 +149,6 @@ class Maze:
         
         # Set start and goal positions
         self._place_start_and_goal()
-        
-        # Optionally remove some dead ends to create loops (only for maze mode)
-        if not self.config.use_corridors and self.config.remove_dead_ends > 0:
-            self._remove_dead_ends()
     
     def _generate_corridors(self):
         """
@@ -274,49 +236,6 @@ class Maze:
                 # No unvisited neighbors, backtrack
                 stack.pop()
                 
-    def _remove_dead_ends(self):
-        """Remove some dead ends to create loops (makes maze easier)"""
-        dead_ends = self._find_dead_ends()
-        
-        num_to_remove = int(len(dead_ends) * self.config.remove_dead_ends)
-        
-        for _ in range(num_to_remove):
-            if not dead_ends:
-                break
-                
-            # Pick random dead end
-            x, y = random.choice(list(dead_ends))
-            dead_ends.remove((x, y))
-            
-            # Find a wall neighbor that could be opened
-            neighbors = [(x, y-1), (x, y+1), (x-1, y), (x+1, y)]
-            wall_neighbors = [
-                (nx, ny) for nx, ny in neighbors
-                if 0 < nx < self.width - 1 and 0 < ny < self.height - 1
-                and self._grid[ny][nx] == CellType.WALL
-            ]
-            
-            if wall_neighbors:
-                wx, wy = random.choice(wall_neighbors)
-                self._grid[wy][wx] = CellType.PATH
-                
-    def _find_dead_ends(self) -> Set[Tuple[int, int]]:
-        """Find all dead end cells (path cells with only one path neighbor)"""
-        dead_ends = set()
-        
-        for y in range(1, self.height - 1):
-            for x in range(1, self.width - 1):
-                if self._grid[y][x] in (CellType.PATH, CellType.START, CellType.GOAL):
-                    # Count path neighbors
-                    path_neighbors = sum(
-                        1 for dx, dy in [(0, -1), (0, 1), (-1, 0), (1, 0)]
-                        if self._grid[y + dy][x + dx] != CellType.WALL
-                    )
-                    if path_neighbors == 1:
-                        dead_ends.add((x, y))
-                        
-        return dead_ends
-        
     def get_cell(self, x: int, y: int) -> CellType:
         """Get cell type at position"""
         if 0 <= x < self.width and 0 <= y < self.height:

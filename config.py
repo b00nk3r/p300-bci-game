@@ -4,10 +4,8 @@ P300 BCI Game Configuration
 Central configuration for all game parameters.
 
 Based on research recommendations:
-- Arrow size: ~1° visual angle (~100px at 60cm viewing distance)
 - Flash duration: 100-125ms for optimal P300 response
 - ISI: 100-150ms between flashes
-- Eccentricity: ~5° from center for arrow placement
 
 References:
 - Ron-Angevin et al. (2019): Speller size optimization
@@ -16,7 +14,7 @@ References:
 """
 
 from dataclasses import dataclass, field
-from typing import Tuple, List, Optional
+from typing import Tuple, List
 from enum import Enum, auto
 from pathlib import Path
 
@@ -61,7 +59,6 @@ class DisplayConfig:
     height: int = 1080
     fullscreen: bool = False
     fps: int = 60
-    vsync: bool = True
     background_color: Tuple[int, int, int] = (10, 10, 10)
 
 
@@ -78,10 +75,7 @@ class TimingConfig:
     
     # Flash pattern
     flash_pattern: FlashPattern = FlashPattern.RANDOM
-    
-    # Feedback
-    feedback_duration_ms: int = 500
-    
+
     @property
     def soa_ms(self) -> int:
         """Stimulus Onset Asynchrony"""
@@ -112,32 +106,23 @@ class ArrowConfig:
     
     # Color scheme
     color_scheme: ColorScheme = ColorScheme.GRAY_WHITE
-    
+
     # Gray/White scheme colors (default)
     idle_color: Tuple[int, int, int] = (128, 128, 128)
     flash_color: Tuple[int, int, int] = (255, 255, 255)
-    
+
     # Panel behind arrows (200×200 px total)
     panel_size: int = 200             # Panel size in pixels
     panel_color: Tuple[int, int, int] = (0, 0, 0)
-    panel_alpha: int = 153            # ~60% opacity (153/255)
-    
-    # Optional glow/border
-    glow_thickness: int = 20          # Border thickness when flashing
-    
-    @property
-    def panel_padding(self) -> int:
-        """Padding from arrow edge to panel edge"""
-        return (self.panel_size - self.size) // 2  # 25px with default values
 
 
 @dataclass
 class LayoutConfig:
     """
     Arrow layout configuration.
-    
+
     Specifications (for 3072×1920):
-    - Overlay window: 1150×1150 px (±50px), SQUARE, centered
+    - Arrow cluster: 1150×1150 px square, centered
     - Arrow offset from center: 475 px (to achieve 1150px with 200px panels)
     - Arrow size: 150×150 px
     """
@@ -145,10 +130,7 @@ class LayoutConfig:
     # For 1150px square: offset = (1150 - 200) / 2 = 475px
     horizontal_offset: int = 475      # Left/Right arrows
     vertical_offset: int = 475        # Up/Down arrows (same for square)
-    
-    # Keep-out spacing from panels to game elements
-    keepout_margin: int = 50          # Recommended 50-90px
-    
+
     def get_positions(self, screen_width: int, screen_height: int) -> dict:
         """Calculate arrow center positions"""
         cx, cy = screen_width // 2, screen_height // 2
@@ -158,48 +140,11 @@ class LayoutConfig:
             Direction.LEFT: (cx - self.horizontal_offset, cy),
             Direction.RIGHT: (cx + self.horizontal_offset, cy),
         }
-    
-    def get_overlay_rect(
-        self, 
-        screen_width: int, 
-        screen_height: int, 
-        panel_size: int = 200
-    ) -> Tuple[int, int, int, int]:
-        """
-        Get the overall bounding rectangle containing all arrow panels.
-        
-        Target: 1150×1150 px square, centered
-        
-        Returns:
-            (left, top, width, height)
-        """
-        positions = self.get_positions(screen_width, screen_height)
-        half_panel = panel_size // 2
-        
-        # Find bounds of all panels
-        left = positions[Direction.LEFT][0] - half_panel
-        right = positions[Direction.RIGHT][0] + half_panel
-        top = positions[Direction.UP][1] - half_panel
-        bottom = positions[Direction.DOWN][1] + half_panel
-        
-        return (left, top, right - left, bottom - top)
 
 
 @dataclass
 class GameConfig:
     """Maze game settings"""
-    # Colors (much duller grayscale to make arrows stand out)
-    wall_color: Tuple[int, int, int] = (40, 40, 40)
-    path_color: Tuple[int, int, int] = (25, 25, 25)
-    player_color: Tuple[int, int, int] = (70, 70, 70)
-    
-    # Maze
-    cell_size: int = 40
-    
-    # Player
-    player_size: int = 30
-    move_duration_ms: int = 300
-    
     # Dullness level (1-5): higher = duller game elements, arrows stand out more
     # 5 = current brightness, 1 = very dull
     dullness: int = 5
@@ -209,17 +154,16 @@ class GameConfig:
 class TriggerConfig:
     """EEG trigger/marker settings"""
     enabled: bool = True
-    method: str = "file"              # "file", "lsl", "serial"
-    
-    # Trigger codes (must match MATLAB)
+    method: str = "file"              # only "file" is implemented
+
+    # Trigger codes
     TRIAL_START: int = 1
     TRIAL_END: int = 2
     FLASH_UP: int = 10
     FLASH_DOWN: int = 11
     FLASH_LEFT: int = 12
     FLASH_RIGHT: int = 13
-    SELECTION: int = 20
-    
+
     # File output
     trigger_file: Path = Path("data/sessions/triggers.txt")
 
@@ -233,17 +177,16 @@ class Config:
     layout: LayoutConfig = field(default_factory=LayoutConfig)
     game: GameConfig = field(default_factory=GameConfig)
     triggers: TriggerConfig = field(default_factory=TriggerConfig)
-    
-    # Debug settings
-    debug: bool = True
 
-
-# Default configuration instance
-DEFAULT_CONFIG = Config()
 
 # =============================================================================
 # Real-time BCI configuration
 # =============================================================================
+
+# EEG stream format shared by the acquisition script, the mock stream, and the
+# real-time classifier. Keep these in sync with the g.Nautilus configuration.
+EEG_SAMPLING_RATE_HZ = 500
+EEG_N_CHANNELS = 16
 
 LSL_STREAM_TYPE = "EEG"
 LSL_STREAM_NAME = None   # None = auto-discover; or set a specific name

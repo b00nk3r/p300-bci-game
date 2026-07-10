@@ -106,6 +106,7 @@ class LiveMode(Application):
             max_collectibles=5,
             cell_size=cell_size,
             use_corridors=use_corridors,
+            end_on_completion=True,  # collecting all donuts wins the game
         )
 
     def _register_game_callbacks(self):

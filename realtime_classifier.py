@@ -39,8 +39,7 @@ except ImportError:
 
 # ── Constants matching the offline pipeline ──────────────────────────
 
-SR = 500
-N_CHANNELS = 16
+from config import EEG_SAMPLING_RATE_HZ as SR, EEG_N_CHANNELS as N_CHANNELS
 
 BPF_LOW = 0.5
 BPF_HIGH = 30.0

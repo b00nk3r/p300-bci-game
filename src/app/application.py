@@ -1,4 +1,3 @@
-import sys
 import argparse
 import time
 
@@ -176,9 +175,7 @@ class Application:
             use_corridors=use_corridors,
         )
         self.game_manager = GameManager(game_config)
-
-        arrow_positions = self.config.layout.get_positions(DESIGN_WIDTH, DESIGN_HEIGHT)
-        self.game_manager.initialize(DESIGN_WIDTH, DESIGN_HEIGHT, panel_rect, arrow_positions)
+        self.game_manager.initialize(DESIGN_WIDTH, DESIGN_HEIGHT, panel_rect)
 
         self._register_game_callbacks()
         self.game_manager.set_dullness(self.config.game.dullness)
@@ -262,7 +259,7 @@ class Application:
             print("Settings panel opened")
 
     def _on_settings_apply(self, values: SettingsValues):
-        print(f"Settings applied:")
+        print("Settings applied:")
         print(f"  Flash: {values.flash_duration_ms}ms")
         print(f"  ISI: {values.isi_ms}ms")
         print(f"  Sequences: {values.num_sequences}")

@@ -11,7 +11,6 @@ Saves:
 Output format is a plain text file for easy parsing.
 """
 
-import os
 import time
 from datetime import datetime
 from typing import List, Optional
@@ -304,13 +303,6 @@ class SessionLogger:
     def is_active(self) -> bool:
         """Whether a session is currently active"""
         return self._session_active
-        
-    @property
-    def current_session_id(self) -> Optional[str]:
-        """Get current session ID"""
-        if self._current_session:
-            return self._current_session.session_id
-        return None
 
 
 # =============================================================================

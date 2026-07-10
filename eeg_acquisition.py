@@ -23,8 +23,8 @@ except ImportError:
     sys.exit(1)
 
 
-SAMPLING_RATE = 500
-N_CHANNELS = 16
+from config import EEG_SAMPLING_RATE_HZ as SAMPLING_RATE, EEG_N_CHANNELS as N_CHANNELS
+
 STREAM_NAME = "gNautilus"
 STREAM_TYPE = "EEG"
 SCAN_COUNT = 64

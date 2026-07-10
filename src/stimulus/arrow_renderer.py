@@ -4,13 +4,11 @@ Arrow Renderer
 Handles drawing of arrow stimuli with configurable appearance.
 
 Design based on P300 BCI research recommendations:
-- Arrow size: ~1° visual angle (~100px at 60cm viewing distance)
 - High contrast between idle and flash states
-- Semi-transparent panel behind arrows for visual grouping
+- Solid panel behind arrows for visual grouping
 """
 
 import pygame
-import math
 from typing import Dict, Tuple, Optional
 
 from config import ArrowConfig, LayoutConfig, Direction, ColorScheme
@@ -22,10 +20,10 @@ class ArrowRenderer:
     
     Features:
     - Pre-rendered arrow surfaces for performance
-    - Multiple color schemes (Gray/White, Green/Blue, Inverted)
-    - Semi-transparent background panel
+    - Multiple grayscale color schemes (see ColorScheme)
+    - Solid black background panel
     - Smooth, filled arrow shapes
-    
+
     Usage:
         renderer = ArrowRenderer(arrow_config, layout_config)
         renderer.initialize(screen_width, screen_height)
@@ -137,12 +135,6 @@ class ArrowRenderer:
         # Create a full opaque black rectangle for the panel.
         self._panel_surface = pygame.Surface((width, height), pygame.SRCALPHA)
         self._panel_surface.fill((0, 0, 0, 255))
-
-        # Keep compatibility for callers that expect this attribute.
-        self._plus_shape = {
-            'vertical': self._panel_rect.copy(),
-            'horizontal': self._panel_rect.copy(),
-        }
         
     def _create_arrow_surfaces(self):
         """Pre-render arrow surfaces for each direction and state"""
@@ -167,12 +159,11 @@ class ArrowRenderer:
     ) -> pygame.Surface:
         """
         Create a single arrow surface with pixel art styling.
-        
-        The arrow is a solid filled isosceles triangle with pixel art borders:
-        - Bounding box: 100×100 px (configurable via size)
-        - Triangle: 80px length, 60px base (configurable in ArrowConfig)
-        - Pixel art highlight/shadow edges for 3D effect
-        
+
+        The arrow is a solid filled isosceles triangle with pixel art borders.
+        Bounding box and triangle dimensions come from ArrowConfig, with
+        highlight/shadow edges for a 3D effect.
+
         Args:
             direction: Which way the arrow points
             color: RGB color tuple
@@ -234,30 +225,29 @@ class ArrowRenderer:
     ) -> list:
         """
         Calculate polygon points for an arrow shape.
-        
+
         Creates a solid isosceles triangle with:
-        - Length (in pointing direction): triangle_length (default 80px)
-        - Base width: triangle_base (default 60px)
-        
+        - Length (in pointing direction): triangle_length
+        - Base width: triangle_base
+
         The triangle is centered in the bounding box.
-        
+
         Args:
             direction: Which way the arrow points
             size: Size of the bounding box
-            
+
         Returns:
             List of (x, y) tuples for polygon vertices
         """
         # Get triangle dimensions from config
-        length = self.arrow_config.triangle_length  # 80px default
-        base = self.arrow_config.triangle_base      # 60px default
+        length = self.arrow_config.triangle_length
+        base = self.arrow_config.triangle_base
         half_base = base / 2
-        
+
         # Center of the bounding box
         center = size / 2
-        
+
         # Calculate margins to center the triangle
-        # For a 100px box with 80px length: margin = (100-80)/2 = 10px
         length_margin = (size - length) / 2
         
         if direction == Direction.UP:
@@ -373,20 +363,11 @@ class ArrowRenderer:
         """
         Get the rectangle of the arrow panel.
         Useful for positioning game elements around it.
-        
+
         Returns:
             pygame.Rect of the panel, or None if not initialized
         """
         return self._panel_rect
-        
-    def get_arrow_positions(self) -> Dict[Direction, Tuple[int, int]]:
-        """
-        Get the center positions of all arrows.
-        
-        Returns:
-            Dict mapping Direction to (x, y) center coordinates
-        """
-        return self._positions.copy()
 
 
 # =============================================================================

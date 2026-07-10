@@ -14,7 +14,7 @@ For P300 BCI, timing jitter should be <10ms for reliable ERP averaging.
 
 import time
 import random
-from typing import Callable, Optional, List, Dict, Any
+from typing import Callable, Optional, List
 from dataclasses import dataclass, field
 from enum import Enum, auto
 
@@ -25,7 +25,6 @@ class TimerState(Enum):
     """State of the timing controller"""
     IDLE = auto()       # Not running
     RUNNING = auto()    # Actively processing events
-    PAUSED = auto()     # Temporarily paused
     COMPLETE = auto()   # Finished all sequences
 
 
@@ -103,89 +102,68 @@ class TimingController:
             config: Timing configuration with flash duration, ISI, etc.
         """
         self.config = config
-        
+
         # State
         self._state = TimerState.IDLE
         self._start_time: float = 0.0
-        self._pause_time: float = 0.0
-        self._pause_duration: float = 0.0
-        
+
         # Event schedule
         self._events: List[FlashEvent] = []
         self._event_index: int = 0
-        
+
         # Current flash state
         self._current_flash: Optional[Direction] = None
-        self._current_sequence: int = 0
-        
+
         # Callbacks
         self._on_flash_start: Optional[Callable[[Direction, int, float], None]] = None
         self._on_flash_end: Optional[Callable[[Direction, int, float], None]] = None
-        self._on_sequence_complete: Optional[Callable[[int], None]] = None
         self._on_selection_complete: Optional[Callable[[], None]] = None
-        
+
         # Statistics
         self._stats = TimingStats()
-        
+
     def set_callbacks(
         self,
         on_flash_start: Optional[Callable[[Direction, int, float], None]] = None,
         on_flash_end: Optional[Callable[[Direction, int, float], None]] = None,
-        on_sequence_complete: Optional[Callable[[int], None]] = None,
         on_selection_complete: Optional[Callable[[], None]] = None,
     ):
         """
         Set callback functions for timing events.
-        
+
         Args:
             on_flash_start: Called when flash begins (direction, sequence, timestamp_ms)
             on_flash_end: Called when flash ends (direction, sequence, timestamp_ms)
-            on_sequence_complete: Called when a sequence finishes (sequence_number)
             on_selection_complete: Called when all sequences are done
         """
         self._on_flash_start = on_flash_start
         self._on_flash_end = on_flash_end
-        self._on_sequence_complete = on_sequence_complete
         self._on_selection_complete = on_selection_complete
-        
+
     def start(self):
         """Start a new selection (begin flashing sequence)"""
         if self._state == TimerState.RUNNING:
             return
-            
+
         # Build event schedule
         self._build_schedule()
-        
+
         # Reset state
         self._event_index = 0
         self._current_flash = None
-        self._current_sequence = 0
-        self._pause_duration = 0.0
-        
+
         # Reset stats
         self._stats = TimingStats(total_events=len(self._events))
-        
+
         # Start timer
         self._start_time = time.perf_counter()
         self._state = TimerState.RUNNING
-        
+
     def stop(self):
         """Stop the current selection"""
         self._state = TimerState.IDLE
         self._current_flash = None
-        
-    def pause(self):
-        """Pause timing (for settings menu, etc.)"""
-        if self._state == TimerState.RUNNING:
-            self._pause_time = time.perf_counter()
-            self._state = TimerState.PAUSED
-            
-    def resume(self):
-        """Resume from pause"""
-        if self._state == TimerState.PAUSED:
-            self._pause_duration += time.perf_counter() - self._pause_time
-            self._state = TimerState.RUNNING
-            
+
     def update(self) -> Optional[Direction]:
         """
         Update timing and process any due events.
@@ -238,16 +216,10 @@ class TimingController:
             # Flash end
             if self._current_flash == event.direction:
                 self._current_flash = None
-                
+
             if self._on_flash_end:
                 self._on_flash_end(event.direction, event.sequence, actual_time_ms)
-                
-            # Check for sequence complete (after last flash ends in sequence)
-            if event.index == len(Direction.all()) - 1:  # Last arrow in sequence (0-indexed)
-                self._current_sequence = event.sequence + 1
-                if self._on_sequence_complete:
-                    self._on_sequence_complete(event.sequence)
-                    
+
     def _build_schedule(self):
         """Build the complete event schedule for all sequences"""
         self._events = []
@@ -304,46 +276,18 @@ class TimingController:
         return directions
         
     def _elapsed_ms(self) -> float:
-        """Get elapsed time since start in milliseconds (excluding pauses)"""
-        if self._state == TimerState.PAUSED:
-            return (self._pause_time - self._start_time - self._pause_duration) * 1000.0
-        return (time.perf_counter() - self._start_time - self._pause_duration) * 1000.0
-        
+        """Get elapsed time since start in milliseconds"""
+        return (time.perf_counter() - self._start_time) * 1000.0
+
     @property
     def is_running(self) -> bool:
         """Whether the controller is actively running"""
         return self._state == TimerState.RUNNING
-        
-    @property
-    def is_complete(self) -> bool:
-        """Whether all sequences have finished"""
-        return self._state == TimerState.COMPLETE
-        
-    @property
-    def current_sequence(self) -> int:
-        """Current sequence number (0-indexed)"""
-        return self._current_sequence
-        
-    @property
-    def progress(self) -> float:
-        """Progress through all sequences (0.0 to 1.0)"""
-        if not self._events:
-            return 0.0
-        return self._event_index / len(self._events)
-        
+
     @property
     def stats(self) -> TimingStats:
         """Get timing statistics"""
         return self._stats
-        
-    def get_expected_duration_ms(self) -> float:
-        """Calculate expected total duration in milliseconds"""
-        num_flashes_per_seq = len(Direction.all())  # 4 directions
-        seq_duration = num_flashes_per_seq * self.config.soa_ms
-        total = self.config.num_sequences * (
-            seq_duration + self.config.inter_sequence_pause_ms
-        )
-        return total
 
 
 # =============================================================================
@@ -370,25 +314,20 @@ def demo():
         events_log.append(('OFF', direction.value, seq, time_ms))
         print(f"  {time_ms:8.1f}ms: {direction.value:5} OFF")
         
-    def on_sequence_complete(seq):
-        print(f"  --- Sequence {seq} complete ---")
-        
     def on_selection_complete():
         print("  === Selection complete ===")
-        
+
     controller.set_callbacks(
         on_flash_start=on_flash_start,
         on_flash_end=on_flash_end,
-        on_sequence_complete=on_sequence_complete,
         on_selection_complete=on_selection_complete,
     )
-    
+
     print("TimingController Demo")
     print(f"  Flash duration: {config.timing.flash_duration_ms}ms")
     print(f"  ISI: {config.timing.isi_ms}ms")
     print(f"  SOA: {config.timing.soa_ms}ms")
     print(f"  Sequences: {config.timing.num_sequences}")
-    print(f"  Expected duration: {controller.get_expected_duration_ms():.0f}ms")
     print()
     print("Starting selection...")
     print()

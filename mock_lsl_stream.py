@@ -11,11 +11,11 @@ It won't produce meaningful classifications, but it validates that:
   - The ring buffer fills correctly
   - Epoch extraction timing is correct
   - The preprocessing pipeline runs without errors
-  - The LDA model produces outputs (even if wrong)
+  - The model produces outputs (even if wrong)
 
 Usage:
     Terminal 1:  python mock_lsl_stream.py
-    Terminal 2:  python main.py  (with BCI_MODE = True)
+    Terminal 2:  python main_live.py
 """
 
 import numpy as np
@@ -26,9 +26,8 @@ try:
 except ImportError:
     raise ImportError("Install pylsl: pip install pylsl")
 
+from config import EEG_SAMPLING_RATE_HZ as SR, EEG_N_CHANNELS as N_CHANNELS
 
-SR = 500
-N_CHANNELS = 16
 STREAM_NAME = "MockEEG"
 STREAM_TYPE = "EEG"
 

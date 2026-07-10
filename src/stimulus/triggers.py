@@ -62,7 +62,7 @@ class TriggerManager:
             
     def stop_session(self):
         if self._file:
-            self._file.write(f"\n")
+            self._file.write("\n")
             self._file.write("=" * 70 + "\n")
             session_end_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
             self._file.write(f"Session ended: {session_end_str}\n")
@@ -102,9 +102,6 @@ class TriggerManager:
         
     def send_trial_start(self):
         self.send(self.config.TRIAL_START, "trial_start")
-        
+
     def send_trial_end(self):
         self.send(self.config.TRIAL_END, "trial_end")
-        
-    def send_selection(self, direction: Direction):
-        self.send(self.config.SELECTION, f"selection_{direction.value}")
