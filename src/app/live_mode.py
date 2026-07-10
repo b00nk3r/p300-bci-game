@@ -4,7 +4,7 @@ from enum import Enum, auto
 
 import pygame
 
-from config import Direction
+from config import Direction, LSL_STREAM_TYPE, LSL_STREAM_NAME
 from src.app.application import Application, DESIGN_WIDTH, DESIGN_HEIGHT
 from src.game.game_manager import GameManagerConfig, GameState
 
@@ -55,9 +55,10 @@ class LiveMode(Application):
     """Live BCI mode.
 
     Continuous selections: SPACE starts a trial, the stimulus controller flashes
-    a block, the classifier picks a direction, the player moves, then a 10-second
-    break and the next trial begins. Each selection opens and closes its own
-    trigger session and log file.
+    a block, then a 10-second break begins. Early in the break (once the
+    post-stimulus EEG has buffered) the classifier picks a direction and the
+    player moves; the next trial begins when the break ends. Each selection opens
+    and closes its own trigger session and log file.
     """
 
     def __init__(self, config):
@@ -67,6 +68,13 @@ class LiveMode(Application):
         self.trial_stage_start_time = 0.0
         self.trial_break_ms = 10000  # 10-second gap between selections
 
+        # Classification is deferred this long into the break so the
+        # post-stimulus EEG has reached the buffer. Waiting here (during the
+        # break, while the loop keeps rendering) instead of inside the
+        # classifier avoids freezing the window on the classifier's own wait.
+        self._classify_delay_ms = 1100
+        self._classification_pending = False
+
     # ===================================================================
     # Mode hooks
     # ===================================================================
@@ -75,10 +83,9 @@ class LiveMode(Application):
         self._init_classifier()
 
     def _init_classifier(self):
-        from config import LSL_STREAM_TYPE, LSL_STREAM_NAME
-
         self.classifier = None
         try:
+            # Imported lazily so the game still runs without pylsl / a headset.
             from realtime_classifier import create_classifier
             self.classifier = create_classifier(
                 stream_type=LSL_STREAM_TYPE,
@@ -157,8 +164,16 @@ class LiveMode(Application):
             self._draw_trial_overlay(surface)
 
     def _on_block_complete(self):
-        # The flash block is done. Ask the classifier (it prints the result),
-        # move the player, finalize this selection, then break.
+        # The flash block is done. Start the break right away so the loop keeps
+        # rendering, and defer classification (see _update_trial_run) until the
+        # post-stimulus EEG has arrived. Classifying here would block the main
+        # thread on the classifier's internal wait and freeze the window.
+        self._classification_pending = True
+        self._start_break_stage()
+
+    def _classify_and_move(self):
+        # Called once the buffer has filled, so the classifier no longer waits.
+        # It prints the result; then move the player and finalize the selection.
         selected_direction = self.stim.classify()
 
         if (
@@ -171,7 +186,6 @@ class LiveMode(Application):
                 print("  (blocked by wall)")
 
         self._finalize_live_bci_trial(selected_direction)
-        self._start_break_stage()
 
     def _on_cleanup(self):
         if self._is_active():
@@ -231,6 +245,7 @@ class LiveMode(Application):
     def _start_flashing_stage(self):
         self.trial_stage = TrialStage.FLASHING
         self.trial_stage_start_time = time.perf_counter()
+        self._classification_pending = False
 
         # Live has no attended target. start_block also clears the classifier's
         # recorded flashes, so each selection is classified on its own block.
@@ -256,6 +271,7 @@ class LiveMode(Application):
 
         self.trial_stage = TrialStage.IDLE
         self.trial_stage_start_time = 0.0
+        self._classification_pending = False
 
         if was_active:
             self.stim.triggers.set_current_target(None)
@@ -279,11 +295,17 @@ class LiveMode(Application):
 
         if self.trial_stage == TrialStage.FLASHING:
             # Advance the flash engine. When the block finishes, the controller
-            # calls _on_block_complete, which classifies and starts the break.
+            # calls _on_block_complete, which starts the break and queues the
+            # deferred classification handled below.
             self.stim.update()
             return
 
         if self.trial_stage == TrialStage.BREAK:
+            # Once the post-stimulus EEG has buffered, classify and move. This
+            # runs during the break so the render loop never stalls.
+            if self._classification_pending and elapsed_stage_ms >= self._classify_delay_ms:
+                self._classification_pending = False
+                self._classify_and_move()
             if elapsed_stage_ms >= self.trial_break_ms:
                 self._advance_trial_phase()
 
